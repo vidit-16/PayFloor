@@ -1,0 +1,153 @@
+# Buy or Wait? — affordability decision agent
+
+Decides, for each request in `dataset/requests.csv`, whether the user should pay
+in full, pay partially, use a supplied installment option, wait, or not proceed.
+
+## Quick start
+
+```bash
+cd code
+pip install -r requirements.txt
+python main.py run            # writes ../dataset/output.csv
+```
+
+**`run` needs no API key.** Every model extraction is cached in `extracted/` and
+shipped with the solution, so the decision pipeline is fully reproducible
+offline. `extract` is the only command that calls a model.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `python main.py run` | Produce `output.csv` for all 250 requests, validate it, print the contract report |
+| `python main.py score` | Grade the pipeline against the 25 labelled samples, per column |
+| `python main.py validate` | Re-check an existing `output.csv` (schema + cross-field) |
+| `python main.py test` | 17 unit tests + 10 property tests over all 250 requests |
+| `python main.py calibrate` | Refit the projection scales, with leave-one-out cross-validation |
+| `python main.py extract` | Rebuild model extractions — **requires `OPENAI_API_KEY`** |
+
+Add `--dataset PATH` / `--out PATH` to any command.
+
+## Configuration
+
+Only needed for `extract`. Copy `.env.example` to `.env`:
+
+```
+OPENAI_API_KEY=sk-...
+# OPENAI_BASE_URL=            # any OpenAI-compatible endpoint
+# ORCHESTRATE_MODEL=gpt-5-mini
+# ORCHESTRATE_CONCURRENCY=6   # primary TPM/RPM control
+```
+
+Secrets are read from the environment only. No key is ever written to a file
+that ships.
+
+## Architecture
+
+Full rationale in [DESIGN.md](DESIGN.md). In one line: **the model describes,
+deterministic code decides.**
+
+```
+messages / images / event descriptions        profiles, events, FX, options
+             |                                            |
+      model extraction                                    |
+      (structured facts only)                             |
+             +---------------------+----------------------+
+                                   v
+                    financial state reconstruction
+                                   v
+                        90-day balance forecast
+                                   v
+              candidate plans  ->  safety filter  ->  eligibility
+                                   v
+                     6-level deterministic ranking
+                                   v
+                    output.csv + templated explanation
+```
+
+The specification defines affordability as an invariant over a forecast plus an
+explicit tie-breaker, which makes the answer computable rather than predictable.
+No model is consulted in the decision path — so the same inputs always produce
+the same recommendation, and evidence embedded in a message cannot influence a
+decision it is not allowed to make.
+
+## Layout
+
+```
+main.py                     entry point
+DESIGN.md                   architecture and decision logic
+pipelines/
+  september2026.py          wiring: state -> forecast -> solve -> row
+  sept_state.py             event normalisation, FX, recurrence, forecast
+  sept_extract.py           model extraction schemas and prompts
+  sept_solver.py            candidate generation, ranking, explanations
+  sept_validate.py          cross-field decision validation
+orchestrate/
+  schema.py                 output contract + per-column validator
+  cache.py                  content-hash SQLite cache (reproducibility)
+  llm.py                    OpenAI-compatible backend, structured output, usage ledger
+  config.py                 env-driven settings
+evaluation/
+  calibrate.py              joint fit of projection scales, with LOO
+  usage_report.md           token and cost report for the final run
+extracted/                  cached model output (messages, images, descriptions)
+tests/
+  test_harness.py           output contract, cross-field rules, cache
+  test_invariants.py        properties over all 250 requests
+tools/                      extraction runners, dataset profiler, transcript logger
+```
+
+## Testing
+
+```bash
+python main.py test
+```
+
+`test_harness.py` covers the output contract and cross-field rules with no
+dataset needed. `test_invariants.py` asserts properties over all 250 real
+requests — bounds, determinism, no double counting, the pending-credit /
+pending-debit asymmetry, no invented recurrence, spending changes never touching
+protected categories, and the decisive one: **every recommended plan is
+re-simulated independently of the solver that chose it**, so a disagreement
+between planner and simulator fails loudly instead of shipping.
+
+That test found a real defect the labelled samples could not — `amount_safe_to_pay`
+was rounded to cents, and rounding up placed the plan a fraction below the
+minimum balance it is defined by.
+
+## Accuracy
+
+Against the 25 labelled samples:
+
+| column | exact |
+|---|---|
+| `recommended_payment_method` | 88% |
+| `spending_changes_needed` | 88% |
+| `payment_plan` | 84% |
+| `affordability_status` | 80% |
+| `earliest_date_for_full_payment` | 76% |
+| `decision_explanation` | 52% |
+| `amount_safe_to_pay` | 24% exact, 6.6% median error |
+| **mean** | **70.3%** |
+
+`decision_explanation` is scored here by exact string match against templated
+gold, so the figure understates it — the rubric grades usefulness and
+consistency.
+
+## Cost
+
+395 model calls, $0.50 total, $0.0020 per request — see
+[evaluation/usage_report.md](evaluation/usage_report.md). Extraction is keyed on
+content rather than per request, so the 250 requests, 25,342 events and 215
+messages are covered by 395 calls, and re-running after a solver change costs
+nothing.
+
+## Known limitations
+
+- The projection scales in `september2026.py` are fitted on 25 samples. Leave-one-out
+  error matches in-sample, and the unscaled model still reaches 68.6%, but a
+  different mix of users could shift the right values.
+- Recurrence is inferred, not given. A user whose history is short or whose
+  circumstances changed in a way no description records will forecast imprecisely.
+- `amount_safe_to_pay` is exact on only 24% of samples, though median error is
+  6.6% — the forecast is directionally right and quantitatively approximate.

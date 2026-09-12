@@ -1,238 +1,158 @@
-"""CLI entry point.
+"""Buy or Wait? — entry point.
 
-    python main.py run      --dataset <dir> [--offline] [--limit N]
-    python main.py score    --dataset <dir> [--offline]
-    python main.py validate --dataset <dir> --predictions output.csv
-    python main.py profile  --dataset <dir>
+    python main.py run          # produce dataset/output.csv for all requests
+    python main.py score        # grade the pipeline against sample_requests.csv
+    python main.py validate     # check an existing output.csv
+    python main.py extract      # (re)build model extractions — needs an API key
+    python main.py calibrate    # refit the projection scales
+    python main.py test         # unit + invariant tests
 
-`run` produces `output.csv`, validates it against the output contract, and
-writes `evaluation/evaluation_report.md`. `score` runs the same pipeline over
-the labeled sample file and grades it, which is the loop you hill-climb on.
+`run` needs no API key: every model extraction is cached under `extracted/`
+and committed with the solution, so the decision pipeline is fully reproducible
+offline. `extract` is the only command that calls a model.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
+import statistics
+import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from orchestrate.cache import CallCache
-from orchestrate.config import load_settings
-from orchestrate.context import ContextStore
-from orchestrate.llm import Extractor, UsageLedger
-from orchestrate.report import render_report, write_report
-from orchestrate.runner import Runner
-from orchestrate.score import load_csv, score_predictions
-from pipelines import august2026 as pipeline
+from pipelines.september2026 import SPEC, Dataset, fallback_row, solve_request  # noqa: E402
+from pipelines.sept_validate import validate_all  # noqa: E402
+
+DEFAULT_DATASET = "../dataset"
 
 
-def _build(args) -> tuple:
-    settings = load_settings(dataset_dir=args.dataset, output_path=getattr(args, "output", None))
-    store = ContextStore(settings.dataset_dir)
-    cache = CallCache(settings.cache_path)
-    ledger = UsageLedger()
-    extractor = None if args.offline else Extractor(settings, cache, ledger)
-    engine = pipeline.build_engine()
-    return settings, store, cache, ledger, extractor, engine
+def _solve_all(dataset: Dataset, rows) -> tuple[list[dict], list[tuple[str, str]]]:
+    preds, failures = [], []
+    for row in rows:
+        try:
+            preds.append(solve_request(row, dataset))
+        except Exception as exc:  # noqa: BLE001 — one bad row must not end the run
+            failures.append((row.get("request_id", "?"), f"{type(exc).__name__}: {exc}"))
+            preds.append(fallback_row(row, exc))
+    return preds, failures
 
 
 def cmd_run(args) -> int:
-    settings, store, cache, ledger, extractor, engine = _build(args)
-    spec = pipeline.SPEC
+    dataset = Dataset(args.dataset)
+    rows = dataset.requests
+    preds, failures = _solve_all(dataset, rows)
+    print(f"solved {len(preds)} request(s), {len(failures)} failure(s)")
+    for rid, err in failures[:5]:
+        print(f"  FAILED {rid}: {err}")
 
-    problems = pipeline.REASONS.audit()
-    if problems:
-        print("reason templates outside the target word band:", file=sys.stderr)
-        for problem in problems:
-            print(f"  {problem}", file=sys.stderr)
-
-    rows = load_csv(settings.dataset_dir / args.input)
-    if args.limit:
-        rows = rows[: args.limit]
-
-    runner = Runner(
-        key_column=spec.key_column,
-        checkpoint_path=settings.checkpoint_dir / f"{Path(args.input).stem}.jsonl",
-        max_concurrency=settings.max_concurrency,
-        fallback=pipeline.fallback_row,
-    )
-    result = runner.run(rows, pipeline.make_processor(store, engine, extractor))
-
-    report = spec.validate(
-        [spec.coerce_row(r) for r in result.rows],
-        [str(r[spec.key_column]) for r in rows],
-    )
+    report = SPEC.validate([SPEC.coerce_row(p) for p in preds],
+                           [r["request_id"] for r in rows])
     print("\n--- output contract ---")
     print(report.render())
-    if not report.ok:
-        print("\nVALIDATION FAILED — fix before submitting.", file=sys.stderr)
 
-    target = spec.write_csv(result.rows, settings.output_path)
-    print(f"\nwrote {target}")
+    cross = validate_all(rows, preds, profiles=dataset.profiles,
+                         options_by_request=dataset.options)
+    bad = [c for c in cross if not c.ok]
+    print(f"\n--- cross-field validation ---\nrows with violations: {len(bad)}")
+    for c in bad[:10]:
+        print(f"  {c.request_id}: {'; '.join(c.violations)}")
 
-    media = store.get("images")
-    write_report(
-        Path(args.evaluation_dir) / "evaluation_report.md",
-        render_report(
-            settings=settings,
-            ledger=ledger,
-            cache_stats=cache.stats(),
-            row_count=len(result.rows),
-            media_count=len(media) if media else 0,
-            rule_histogram=engine.rule_histogram(),
-            failures=len(result.failures),
-            notes="Offline mode: decisions came from deterministic signals only."
-            if args.offline
-            else "",
-        ),
-    )
-    print(f"wrote {args.evaluation_dir}/evaluation_report.md")
-    cache.close()
-    return 0 if report.ok else 1
+    SPEC.write_csv(preds, args.out)
+    print(f"\nwrote {args.out}")
+    for column in ("affordability_status", "recommended_payment_method"):
+        print(f"{column}: {dict(collections.Counter(p[column] for p in preds))}")
+    return 0 if report.ok and not bad else 1
 
 
 def cmd_score(args) -> int:
-    settings, store, cache, ledger, extractor, engine = _build(args)
-    spec = pipeline.SPEC
+    dataset = Dataset(args.dataset)
+    rows = dataset.samples
+    preds, failures = _solve_all(dataset, rows)
+    gold = {r["request_id"]: r for r in rows}
+    columns = [c.name for c in SPEC.columns if c.kind != "key"]
 
-    gold = load_csv(settings.dataset_dir / args.sample)
-    runner = Runner(
-        key_column=spec.key_column,
-        checkpoint_path=settings.checkpoint_dir / f"{Path(args.sample).stem}.jsonl",
-        max_concurrency=settings.max_concurrency,
-        fallback=pipeline.fallback_row,
-        verbose=not args.quiet,
-    )
-    result = runner.run(gold, pipeline.make_processor(store, engine, extractor))
-
-    report = score_predictions(
-        spec,
-        [spec.coerce_row(r) | {"rule": r.get("rule", "")} for r in result.rows],
-        gold,
-        context_columns=("message_text", "conversation_type"),
-    )
-    print("\n" + report.render())
-
-    errors = report.write_errors(Path(args.evaluation_dir) / "errors.csv")
-    print(f"\nwrote {errors} ({len(report.mismatches)} mismatched rows)")
-    print("\nrules fired:", engine.rule_histogram())
-    cache.close()
+    hits: collections.Counter = collections.Counter()
+    errors: list[float] = []
+    for pred in preds:
+        truth = gold[pred["request_id"]]
+        for column in columns:
+            g, p = str(truth.get(column, "")).strip(), str(pred.get(column, "")).strip()
+            if column == "amount_safe_to_pay":
+                err = abs(float(g) - float(p)) / max(abs(float(g)), 1.0) * 100
+                errors.append(err)
+                hits[column] += err < 1
+            else:
+                hits[column] += g == p
+    n = len(preds)
+    print(f"\n{'column':<34}{'exact':>12}")
+    print("-" * 46)
+    for column in columns:
+        print(f"{column:<34}{hits[column]:>4}/{n:<4}{hits[column] / n:>6.0%}")
+    print("-" * 46)
+    print(f"{'MEAN':<34}{statistics.mean(hits[c] / n for c in columns):>11.1%}")
+    print(f"amount_safe_to_pay median error: {statistics.median(errors):.1f}%")
     return 0
 
 
 def cmd_validate(args) -> int:
-    settings = load_settings(dataset_dir=args.dataset)
-    spec = pipeline.SPEC
-    predictions = load_csv(args.predictions)
-    expected = [str(r[spec.key_column]) for r in load_csv(settings.dataset_dir / args.input)]
-    report = spec.validate(predictions, expected)
+    dataset = Dataset(args.dataset)
+    from orchestrate.schema import OutputSpec  # noqa: F401  (kept explicit for clarity)
+    import csv
+
+    with open(args.out, newline="", encoding="utf-8-sig") as handle:
+        preds = [dict(r) for r in csv.DictReader(handle)]
+    report = SPEC.validate(preds, [r["request_id"] for r in dataset.requests])
     print(report.render())
-    return 0 if report.ok else 1
+    cross = validate_all(dataset.requests, preds, profiles=dataset.profiles,
+                         options_by_request=dataset.options)
+    bad = [c for c in cross if not c.ok]
+    print(f"\ncross-field violations: {len(bad)}")
+    for c in bad[:10]:
+        print(f"  {c.request_id}: {'; '.join(c.violations)}")
+    return 0 if report.ok and not bad else 1
 
 
-def cmd_profile(args) -> int:
-    import subprocess
-
-    return subprocess.call(
-        [sys.executable, str(Path(__file__).parent / "tools" / "profile_dataset.py"),
-         "--dataset", args.dataset]
-    )
+def _run(script: str, *extra: str) -> int:
+    return subprocess.call([sys.executable, str(HERE / script), *extra])
 
 
-def cmd_doctor(args) -> int:
-    """Preflight: are credentials present, valid, and funded? Run this first."""
-    import os
+def cmd_extract(args) -> int:
+    rc = _run("tools/run_extract.py")
+    return rc or _run("tools/run_descriptions.py")
 
-    settings = load_settings(dataset_dir=args.dataset)
-    key = os.environ.get("OPENAI_API_KEY", "")
-    print("--- credentials ---")
-    shown = f"{key[:8]}...{key[-4:]} (len {len(key)})" if key else "not set"
-    print(f"  {'OPENAI_API_KEY':<20} {shown}")
-    print(f"  {'OPENAI_BASE_URL':<20} {settings.base_url}")
-    print(f"\n  provider label : {settings.provider}")
-    print(f"  model          : {settings.model}")
 
-    if not settings.api_key:
-        print("\nFAIL: OPENAI_API_KEY is not set.")
-        print("  Put it in scaffold/.env (copy .env.example) - that file is gitignored.")
-        return 1
+def cmd_calibrate(args) -> int:
+    return _run("evaluation/calibrate.py", "--dataset", args.dataset, "--loo")
 
-    print("\n--- auth check ---")
-    try:
-        from openai import OpenAI
 
-        client = OpenAI(max_retries=1, timeout=30.0)
-        ids = sorted(m.id for m in client.models.list())
-        print(f"  OK - {len(ids)} models visible")
-        if settings.model not in ids:
-            print(f"  WARNING: configured model {settings.model!r} is not in the list.")
-            print(f"  closest available: {[m for m in ids if m.startswith(settings.model[:6])][:5]}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"  FAIL: {type(exc).__name__}: {str(exc)[:200]}")
-        return 1
-
-    print("\n--- billing check ---")
-    try:
-        # Reasoning models spend the budget on hidden reasoning tokens before
-        # emitting anything, so a 1-token ceiling 400s rather than replying.
-        client.chat.completions.create(
-            model=settings.model,
-            messages=[{"role": "user", "content": "hi"}],
-            max_completion_tokens=64,
-        )
-        print("  OK - key is funded and the model is callable")
-    except Exception as exc:  # noqa: BLE001
-        detail = str(exc)
-        lowered = detail.lower()
-        # The request was accepted and billed; it only ran out of output room.
-        if "output limit" in lowered or "max_tokens" in lowered:
-            print("  OK - request was accepted and billed (hit the output ceiling only)")
-            print("\nAll checks passed. Safe to run the pipeline.")
-            return 0
-        print(f"  FAIL: {type(exc).__name__}: {detail[:220]}")
-        if any(w in lowered for w in ("quota", "credit", "billing", "exceeded")):
-            print("  -> key is valid but has no usable credit on it.")
-        return 1
-
-    print("\nAll checks passed. Safe to run the pipeline.")
-    return 0
+def cmd_test(args) -> int:
+    rc = _run("tests/test_harness.py")
+    return rc or _run("tests/test_invariants.py")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="dataset")
-    parser.add_argument("--evaluation-dir", default="evaluation")
-    parser.add_argument("--offline", action="store_true",
-                        help="use deterministic signals instead of model calls (no API key needed)")
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dataset", default=DEFAULT_DATASET,
+                        help=f"dataset directory (default {DEFAULT_DATASET})")
+    parser.add_argument("--out", default=f"{DEFAULT_DATASET}/output.csv",
+                        help="predictions path")
     sub = parser.add_subparsers(dest="command", required=True)
-
-    run = sub.add_parser("run", help="produce output.csv for the full input")
-    run.add_argument("--input", default="messages.csv")
-    run.add_argument("--output")
-    run.add_argument("--limit", type=int)
-    run.set_defaults(func=cmd_run)
-
-    score = sub.add_parser("score", help="grade the pipeline against the labeled sample")
-    score.add_argument("--sample", default="sample_messages.csv")
-    score.add_argument("--quiet", action="store_true")
-    score.set_defaults(func=cmd_score)
-
-    validate = sub.add_parser("validate", help="check an existing predictions file")
-    validate.add_argument("--predictions", required=True)
-    validate.add_argument("--input", default="messages.csv")
-    validate.set_defaults(func=cmd_validate)
-
-    profile = sub.add_parser("profile", help="profile the dataset")
-    profile.set_defaults(func=cmd_profile)
-
-    doctor = sub.add_parser("doctor", help="check credentials are present, valid and funded")
-    doctor.set_defaults(func=cmd_doctor)
-
+    for name, fn, help_text in (
+        ("run", cmd_run, "produce output.csv for every request"),
+        ("score", cmd_score, "grade against the labelled samples"),
+        ("validate", cmd_validate, "check an existing output.csv"),
+        ("extract", cmd_extract, "rebuild model extractions (needs an API key)"),
+        ("calibrate", cmd_calibrate, "refit projection scales"),
+        ("test", cmd_test, "run unit and invariant tests"),
+    ):
+        sub.add_parser(name, help=help_text).set_defaults(func=fn)
     args = parser.parse_args()
     return args.func(args)
 

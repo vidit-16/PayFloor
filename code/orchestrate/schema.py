@@ -63,7 +63,10 @@ class Column:
 
         if self.kind == "number":
             try:
-                number = float(text)
+                # Thousands separators must not silently coerce an amount to
+                # zero: "1,234.50" is a real value, and a zero here would ship
+                # a wrong recommendation rather than an obvious error.
+                number = float(text.replace(",", ""))
             except (TypeError, ValueError):
                 number = float(self.fallback or 0.0)
             if self.bounds:
@@ -213,36 +216,3 @@ class OutputSpec:
             for row in rows:
                 writer.writerow(self.coerce_row(row))
         return target
-
-
-# --------------------------------------------------------------------------- #
-# Reference spec: August 2026 (Message Notification Router).
-# Kept as a worked example — replace with the September spec at T+0.
-# --------------------------------------------------------------------------- #
-
-AUGUST_2026_SPEC = OutputSpec(
-    key_column="message_id",
-    columns=(
-        Column("message_id", "key"),
-        Column(
-            "action",
-            "categorical",
-            allowed=frozenset({"notify", "digest", "mute"}),
-            fallback="digest",
-        ),
-        Column(
-            "message_type",
-            "categorical",
-            allowed=frozenset(
-                {
-                    "personal", "urgent", "event", "payment", "business_update",
-                    "promotion", "greeting", "forward", "spam", "scam", "unknown",
-                }
-            ),
-            fallback="unknown",
-        ),
-        Column("reason", "text", min_words=6),
-        Column("confidence", "number", bounds=(0.0, 1.0), fallback="0.8"),
-        Column("evidence_message_ids", "id_list"),
-    ),
-)

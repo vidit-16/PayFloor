@@ -33,7 +33,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from orchestrate.policy import matched_signals  # noqa: E402
+# Lightweight adversarial-marker scan, kept local so the tool has no
+# dependency on the decision pipeline.
+import re as _re
+_MARKERS = (r'\bignore (previous|prior|above)\b', r'\bsystem note\b',
+            r'\b(set|mark|classify)\s+\w+\s*(as|=)\b', r'\boverride\b')
+
+
+def matched_signals(text):
+    low = (text or '').lower()
+    return {'injection': any(_re.search(m, low) for m in _MARKERS)}
 
 MAX_CATEGORICAL = 25
 TEXTY_MIN_MEAN_WORDS = 4
