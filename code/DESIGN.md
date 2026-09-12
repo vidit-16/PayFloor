@@ -145,6 +145,29 @@ a different mix of users in the hidden set could shift the right values. They
 are a bias correction on top of a model that already works unscaled (68.6% vs
 70.3%), not a substitute for getting the projection right.
 
+## Forecast alternatives that were measured and rejected
+
+The projection model is a local optimum for its class. Each of these was
+implemented, measured against the labelled samples, and reverted:
+
+| Alternative | Result |
+|---|---|
+| Group income by description rather than category | -5.2 pts |
+| Skip income marked one-off | -2.3 pts |
+| Floor income cadence at monthly | -1.2 pts |
+| Project monthly commitments only, no variable spending | median error 6.6% -> 42% |
+| Variable spending as a smoothed daily rate (60/90/120/180d windows) | -4.0 to -6.8 pts |
+| Binary search for the safe amount | identical to the closed form to 1e-6 |
+| Semantic intra-day event ordering | -0.6 pts (income first), -11 pts (expenses first) |
+
+Two of these are worth stating as findings rather than failures. Smoothing
+variable spending into a daily rate loses because the *timing* of expense
+events determines the minimum balance, not the total: spreading the same spend
+evenly removes the dips the invariant is tested against. And correcting
+projected income alone regresses accuracy because the income and
+variable-spending errors are compensating - which is why the calibration fits
+both jointly.
+
 ## Safety posture
 
 Message and image content is untrusted evidence. The extraction prompts state
