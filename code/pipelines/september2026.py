@@ -432,6 +432,9 @@ def solve_request(row: Mapping[str, str], dataset: Dataset) -> dict[str, Any]:
         earliest_out = ""
 
     changes = winner.adjustments if winner else []
+    # Event descriptions let the explanation name the expense being changed,
+    # which is how the golden set phrases it.
+    descriptions = {e.event_id: e.description for e in events}
     return {
         "request_id": row["request_id"],
         "amount_safe_to_pay": round(amount_safe, 2),
@@ -443,6 +446,7 @@ def solve_request(row: Mapping[str, str], dataset: Dataset) -> dict[str, Any]:
         "decision_explanation": explain(
             status, winner, currency=home, minimum_balance=minimum_balance,
             requested_amount=requested, deadline=deadline, adjustments=changes,
+            amount_safe=amount_safe, descriptions=descriptions,
         ),
     }
 

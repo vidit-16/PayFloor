@@ -262,6 +262,35 @@ def _long_date(day: dt.date) -> str:
     return f"{day.day} {day:%B %Y}"
 
 
+def describe_changes(
+    adjustments: Sequence[Adjustment],
+    descriptions: Mapping[str, str] | None,
+    currency: str,
+) -> str:
+    """Render spending changes the way the golden set does: by name.
+
+    "Stop the family streaming plan" rather than "stop:event_476". The event
+    description is the only human-readable handle on a flow, and the golden
+    explanations use it, so the renderer needs it too.
+    """
+    names = descriptions or {}
+    phrases: list[str] = []
+    for adjustment in adjustments:
+        label = names.get(adjustment.event_id, "flexible expense").strip().lower()
+        if adjustment.kind == "stop":
+            phrases.append(f"stop the {label}")
+        else:
+            phrases.append(
+                f"reduce the {label} to {_fmt(currency, adjustment.new_amount or 0.0)}"
+            )
+    if not phrases:
+        return ""
+    joined = phrases[0] if len(phrases) == 1 else " and ".join(
+        [", ".join(phrases[:-1]), phrases[-1]] if len(phrases) > 2 else phrases
+    )
+    return joined[0].upper() + joined[1:]
+
+
 def explain(
     status: str,
     winner: Candidate | None,
@@ -271,53 +300,60 @@ def explain(
     requested_amount: float,
     deadline: dt.date | None,
     adjustments: Sequence[Adjustment] = (),
+    amount_safe: float = 0.0,
+    descriptions: Mapping[str, str] | None = None,
 ) -> str:
-    floor = _fmt(currency, minimum_balance)
-    prefix = ""
-    if adjustments:
-        verb = "Stop" if adjustments[0].kind == "stop" else "Reduce"
-        prefix = f"{verb} the flexible expense, then "
+    """Render the decision in the register the golden set uses.
 
-    if status == STATUS_NOT:
+    Every sentence is built from the numbers that produced the decision - the
+    chosen plan, the forecast floor, the named flexible expenses - so the
+    explanation cannot drift from what the solver actually did. No second
+    reasoning pass, and no model.
+
+    Each branch writes its whole sentence. An earlier version assembled a
+    shared lead fragment and appended to it, which silently produced "Pse 3
+    installments" and cost five rows; template text is not worth deduplicating.
+    """
+    floor = _fmt(currency, minimum_balance)
+    changes = describe_changes(adjustments, descriptions, currency)
+
+    if status == STATUS_NOT or winner is None:
         when = _long_date(deadline) if deadline else "the requested date"
         return (
             f"Do not make this payment by {when}. None of the available options "
             f"keeps the {floor} minimum protected."
         )
-    if winner is None:
-        return f"No safe plan keeps the {floor} minimum protected."
-
-    if status == STATUS_NOW:
-        amount = _fmt(currency, winner.payments[0][1])
-        return (
-            f"{prefix}Pay {amount} today." if prefix else f"Pay {amount} today."
-        ) + f" This leaves at least {floor} available over the next 90 days."
 
     if winner.method == METHOD_WAIT:
+        # State the action and its date, then why it cannot be earlier.
         day = _long_date(winner.payments[0][0])
         amount = _fmt(currency, requested_amount)
         return (
-            f"Wait until {day}, then pay {amount} in full. "
-            f"Paying sooner would put the {floor} minimum at risk."
+            f"Pay {amount} in full on {day}. Paying earlier would take the "
+            f"balance below the {floor} minimum."
         )
 
     if winner.method == METHOD_INSTALL:
         count = len(winner.payments)
         amount = _fmt(currency, winner.payments[0][1])
         start = _long_date(winner.payments[0][0])
-        return (
-            f"{prefix}Use {count} installments of {amount}, starting {start}. "
-            f"This leaves at least {floor} available."
-        )
+        body = (f"use {count} installments of {amount}, starting {start}. "
+                f"This leaves at least {floor} available.")
+        return f"{changes}, then {body}" if changes else f"U{body[1:]}"
 
     if winner.method == METHOD_PARTIAL:
         today = _fmt(currency, winner.payments[0][1])
         rest = _fmt(currency, winner.payments[1][1])
         day = _long_date(winner.payments[1][0])
-        return (
-            f"{prefix}Pay {today} today and the remaining {rest} on {day}. "
-            f"This leaves at least {floor} available."
-        )
+        body = (f"pay {today} today and the remaining {rest} on {day}. "
+                f"This completes the full request and keeps the {floor} "
+                f"minimum protected.")
+        return f"{changes}, then {body}" if changes else f"P{body[1:]}"
 
+    # Full payment, with or without permitted spending changes.
     amount = _fmt(currency, winner.payments[0][1])
-    return f"{prefix}Pay {amount} today. This leaves at least {floor} available."
+    if changes:
+        return (f"{changes}, then pay {amount} today. "
+                f"This leaves at least {floor} available.")
+    return (f"Pay {amount} today. This leaves at least {floor} available "
+            f"over the next 90 days.")
