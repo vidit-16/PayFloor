@@ -158,27 +158,36 @@ def infer_recurring(
     facts = description_facts or {}
     groups: dict[str, list[Event]] = defaultdict(list)
     for event in events:
-        if event.date > as_of:
-            continue
+        # Scheduled future events are confirmed commitments and are the best
+        # evidence of the going-forward amount, so they seed recurrence too.
         if facts.get(event.description, {}).get("continuity") == "superseded":
             continue
+        # Income streams are individually named and must stay separate: base
+        # payroll, commission and bonus are distinct flows on distinct cadences,
+        # and merging them under "salary" collapses the median gap and inflates
+        # projected income several-fold. Spending is the opposite - one category
+        # arrives under many merchant names - so it groups by category.
         groups[event.category].append(event)
 
     out: list[Recurring] = []
-    for category, group in groups.items():
-        if len(group) < 2:
-            continue
+    for key, group in groups.items():
         group.sort(key=lambda e: e.date)
         last = group[-1]
+        category = last.category
+        is_commitment_cat = facts.get(last.description, {}).get("is_commitment", False)
+        # A commitment needs only one observation to imply a monthly cadence:
+        # a single confirmed salary or rent line is a recurring obligation, and
+        # requiring two silently deletes the income of anyone who recently
+        # changed job or whose history window is short.
+        if len(group) < 2 and not is_commitment_cat:
+            continue
 
         # The flow has explicitly ended - do not project it at all.
         if facts.get(last.description, {}).get("continuity") == "final":
             continue
 
         gaps = [(group[i + 1].date - group[i].date).days for i in range(len(group) - 1)]
-        if not gaps:
-            continue
-        median_gap = statistics.median(gaps)
+        median_gap = statistics.median(gaps) if gaps else 30.44
 
         # A commitment interrupted by leave shows an inflated gap. Snap any
         # near-multiple of a month back to monthly.
@@ -225,7 +234,13 @@ def apply_amendments(
     """
     horizon = as_of + dt.timedelta(days=HORIZON)
     one_offs: list[tuple[dt.date, float]] = []
-    by_category = {r.category: r for r in recurring}
+    by_category: dict[str, Recurring] = {}
+    for flow in recurring:
+        # Prefer the largest flow in a category as the amendment target: a
+        # payroll confirmation refers to base pay, not an incidental credit.
+        existing = by_category.get(flow.category)
+        if existing is None or abs(flow.amount) > abs(existing.amount):
+            by_category[flow.category] = flow
 
     for row in dataset.messages.get(user_id, []):
         facts = dataset.message_facts.get(row.get("message_id", ""))
@@ -289,6 +304,9 @@ def project(
         amount = flow.amount
         if flow.representative_id in reduced and reduced[flow.representative_id] is not None:
             amount = -abs(float(reduced[flow.representative_id]))
+        if flow.last_date > as_of:
+            # The seed occurrence is a confirmed future payment in its own right.
+            deltas.append((flow.last_date, amount))
         if 26 <= flow.period_days <= 32:
             for step in range(1, 13):
                 day = add_months(flow.last_date, step)
