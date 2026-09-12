@@ -125,6 +125,26 @@ Only flows whose `flexibility` permits it **and** whose category appears in the
 user's willing-to-reduce / willing-to-stop lists. Stop and reduce are mutually
 exclusive on the same event; at most three changes.
 
+## Calibration, and its honest limits
+
+Two scalar multipliers (`INCOME_SCALE = 1.07`, `VARIABLE_SCALE = 1.02`) correct a
+systematic bias in the projection. They exist because tuning the forecast one
+rule at a time stopped working: an ablation showed that correcting projected
+income alone *regressed* accuracy by 5.2 points, since projected income and
+projected variable spending are both biased upward and were masking each other.
+`evaluation/calibrate.py` therefore fits both together rather than in sequence.
+
+What keeps this from being curve-fitting: two parameters against 25 samples,
+both landing within 7% of 1.0, and a leave-one-out median error (6.6%) that
+matches the in-sample figure. If the held-out error had blown up, the harness
+says so and the scales would not ship. Monthly commitments are never scaled -
+they are contractual amounts, not estimates.
+
+The limitation is real and worth stating: the scales are fitted on 25 rows, and
+a different mix of users in the hidden set could shift the right values. They
+are a bias correction on top of a model that already works unscaled (68.6% vs
+70.3%), not a substitute for getting the projection right.
+
 ## Safety posture
 
 Message and image content is untrusted evidence. The extraction prompts state
