@@ -7,6 +7,7 @@ the same inputs always produce the same recommendation.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Sequence
 
@@ -112,7 +113,11 @@ def max_safe_today(forecast: Forecast, cap: float) -> float:
     headroom is exactly the forecast minimum less the floor - no search needed.
     """
     baseline = min(forecast.min_balance(), forecast.start_balance)
-    return max(0.0, min(cap, baseline - forecast.minimum_balance))
+    headroom = max(0.0, min(cap, baseline - forecast.minimum_balance))
+    # Floor to cents rather than round: rounding up lands the recommended plan
+    # a fraction below the minimum balance, breaching the very invariant the
+    # amount is defined by. Never pay more than is provably safe.
+    return math.floor(headroom * 100) / 100
 
 
 def earliest_full_payment_date(
