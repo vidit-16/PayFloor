@@ -1,0 +1,5 @@
+.env
+.orchestrate/
+__pycache__/
+*.pyc
+evaluation/errors.csv
