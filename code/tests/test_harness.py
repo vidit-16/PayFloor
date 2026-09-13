@@ -15,7 +15,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestrate.cache import CallCache, content_key  # noqa: E402
-from orchestrate.schema import Column, OutputSpec  # noqa: E402
 from pipelines.september2026 import SPEC  # noqa: E402
 from pipelines.sept_validate import parse_plan, validate_decision  # noqa: E402
 

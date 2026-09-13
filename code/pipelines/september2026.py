@@ -19,11 +19,6 @@ from typing import Any, Mapping, Sequence
 from orchestrate.schema import Column, OutputSpec
 
 from .sept_solver import (
-    METHOD_FULL,
-    METHOD_INSTALL,
-    METHOD_PARTIAL,
-    STATUS_NOT,
-    Candidate,
     PaymentOption,
     build_candidates,
     classify,

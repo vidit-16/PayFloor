@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from pipelines.september2026 import SPEC, Dataset  # noqa: E402
+from pipelines.september2026 import Dataset  # noqa: E402
 from pipelines.sept_state import parse_amount, parse_date  # noqa: E402
 from pipelines.sept_validate import parse_plan  # noqa: E402
 

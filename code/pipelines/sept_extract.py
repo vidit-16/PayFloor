@@ -18,9 +18,8 @@ Both are cached per source ID, so a rerun costs nothing and the whole corpus is
 
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from pydantic import BaseModel, Field
 
