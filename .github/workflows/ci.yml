@@ -1,0 +1,87 @@
+name: verify
+
+# Runs the same gate as `python main.py verify`, so green CI and a green local
+# run mean the same thing. The decision pipeline needs no API key: model
+# extractions are cached in code/extracted/ and committed, which is what makes
+# the whole thing reproducible here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: code
+        run: pip install -r requirements.txt
+
+      - name: Unit tests — output contract, cross-field rules, cache
+        working-directory: code
+        run: python tests/test_harness.py
+
+      - name: Guard tests — malformed and adversarial input
+        working-directory: code
+        run: python tests/test_resilience.py
+
+      - name: Invariant tests — properties over all 250 requests
+        working-directory: code
+        run: python tests/test_invariants.py
+
+      - name: Produce output.csv and validate the contract
+        working-directory: code
+        run: python main.py run
+
+      - name: Sanity and parity report
+        working-directory: code
+        run: python tools/sanity_report.py
+
+      - name: Accuracy against the labelled samples
+        working-directory: code
+        run: python main.py score
+
+      - name: Reproducibility — output must be byte-identical on a second run
+        working-directory: code
+        run: |
+          cp ../dataset/output.csv /tmp/first.csv
+          python main.py run
+          diff -q /tmp/first.csv ../dataset/output.csv
+
+      - name: Package and verify the submission archive
+        working-directory: code
+        run: python tools/package.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: submission
+          path: |
+            code.zip
+            dataset/output.csv
+
+  mutation:
+    # Slow (re-runs the suite once per mutant), so it does not gate every push.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - working-directory: code
+        run: pip install -r requirements.txt
+      - name: Mutation testing — are the tests load-bearing?
+        working-directory: code
+        run: python tests/test_mutation.py

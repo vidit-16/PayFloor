@@ -229,6 +229,7 @@ def infer_recurring(
                 minimum_allowed=last.minimum_allowed,
                 event_ids=[e.event_id for e in group],
                 representative_id=last.event_id,
+                seed_amount=last.signed if last.date > as_of else None,
             )
         )
     return out
@@ -286,6 +287,10 @@ def apply_amendments(
             if flow is not None:
                 sign = 1.0 if flow.amount > 0 else -1.0
                 flow.amount = sign * abs(converted)
+                # A message states a *monthly* figure. Writing it onto a flow
+                # whose inferred cadence is 9 days turns a stated monthly salary
+                # into a nine-daily one. Amount and period travel together.
+                flow.period_days = 30
             continue
 
         if not facts.get("is_recurring") and effective and as_of < effective <= horizon:
@@ -326,8 +331,17 @@ def project(
             amount *= VARIABLE_SCALE
 
         if flow.last_date > as_of:
-            # The seed occurrence is a confirmed future payment in its own right.
-            deltas.append((flow.last_date, amount))
+            # The seed occurrence is a confirmed future payment in its own
+            # right, and it is confirmed at *its own* amount. The spec says to
+            # count confirmed salary on its settlement date; substituting the
+            # historical median there discards the one figure the data states
+            # outright.
+            seed_amount = flow.seed_amount if flow.seed_amount is not None else amount
+            if seed_amount > 0:
+                seed_amount *= INCOME_SCALE
+            elif not monthly:
+                seed_amount *= VARIABLE_SCALE
+            deltas.append((flow.last_date, seed_amount))
         if monthly:
             for step in range(1, 13):
                 day = add_months(flow.last_date, step)

@@ -184,6 +184,86 @@ def test_spending_changes_only_touch_permitted_flexible_events():
             )
 
 
+def test_recommended_method_is_one_the_user_accepts():
+    """The user's payment_methods_user_will_consider is a hard filter, not a
+    preference. Added after mutation testing showed nothing enforced it."""
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        method = pred["recommended_payment_method"]
+        if method == "not_recommended":
+            continue
+        profile = DATASET.profiles[request["user_id"]]
+        accepted = set(profile.get("payment_methods_user_will_consider", "").split("|"))
+        needed = "full_payment" if method == "wait" else method
+        assert needed in accepted, (
+            f"{request['request_id']}: recommended {method} but the user accepts "
+            f"{sorted(accepted)}"
+        )
+
+
+def test_installments_respect_max_installment_months():
+    """A blank max_installment_months means the user rejects installments."""
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        if pred["recommended_payment_method"] != "installments":
+            continue
+        profile = DATASET.profiles[request["user_id"]]
+        cap = parse_amount(profile.get("max_installment_months", ""))
+        assert cap is not None, f"{request['request_id']}: installments with no stated cap"
+        count = len(parse_plan(str(pred["payment_plan"])))
+        assert count <= cap, f"{request['request_id']}: {count} payments exceeds cap {cap}"
+
+
+def test_spending_changes_are_in_the_users_willing_lists():
+    """Flexibility alone is not permission: the category must also appear in the
+    user's willing-to-stop or willing-to-reduce list. Added after mutation
+    testing showed an and/or swap went undetected."""
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        raw = str(pred["spending_changes_needed"])
+        if raw == "none":
+            continue
+        profile = DATASET.profiles[request["user_id"]]
+        stop_ok = set(x for x in profile.get(
+            "expense_categories_user_is_willing_to_stop", "").split("|") if x)
+        reduce_ok = set(x for x in profile.get(
+            "expense_categories_user_is_willing_to_reduce", "").split("|") if x)
+        events = {e["event_id"]: e for e in DATASET.events.get(request["user_id"], [])}
+        for change in raw.split("|"):
+            parts = change.split(":")
+            event = events[parts[1]]
+            permitted = stop_ok if parts[0] == "stop" else reduce_ok
+            assert event["category"] in permitted, (
+                f"{request['request_id']}: {parts[0]} on {event['category']}, "
+                f"which the user did not agree to"
+            )
+
+
+def test_forecast_horizon_is_ninety_days():
+    """The spec fixes the window at 90 days; a shorter one hides late breaches."""
+    assert P.HORIZON == 90
+    request = REQUESTS[0]
+    profile = DATASET.profiles[request["user_id"]]
+    forecast = _forecast_for(request, profile)
+    span = (forecast.horizon - forecast.start_date).days
+    assert span == 90, f"forecast spans {span} days, not 90"
+
+
+def test_safe_amount_is_never_rounded_above_what_is_safe():
+    """amount_safe_to_pay must itself survive the forecast, to the cent."""
+    for request in REQUESTS[:80]:
+        pred = BY_ID[request["request_id"]]
+        safe = float(pred["amount_safe_to_pay"])
+        if safe <= 0:
+            continue
+        profile = DATASET.profiles[request["user_id"]]
+        forecast = _forecast_for(request, profile)
+        as_of = parse_date(request["request_date"])
+        assert forecast.is_safe([(as_of, safe)]), (
+            f"{request['request_id']}: amount_safe_to_pay {safe} is not itself safe"
+        )
+
+
 def _adjustments_of(text: str) -> list:
     """Parse a spending_changes_needed cell back into Adjustment objects."""
     from pipelines.sept_state import Adjustment

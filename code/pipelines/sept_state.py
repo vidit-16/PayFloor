@@ -233,6 +233,9 @@ class Recurring:
     minimum_allowed: float | None
     event_ids: list[str] = field(default_factory=list)
     representative_id: str = ""
+    # Actual signed amount of the seed when it is a confirmed future
+    # event; None when the flow ends in history.
+    seed_amount: float | None = None
 
     @property
     def stoppable(self) -> bool:

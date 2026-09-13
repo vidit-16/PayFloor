@@ -22,7 +22,10 @@ offline. `extract` is the only command that calls a model.
 | `python main.py run` | Produce `output.csv` for all 250 requests, validate it, print the contract report |
 | `python main.py score` | Grade the pipeline against the 25 labelled samples, per column |
 | `python main.py validate` | Re-check an existing `output.csv` (schema + cross-field) |
-| `python main.py test` | 17 unit tests + 10 property tests over all 250 requests |
+| `python main.py verify` | **The full pre-submission gate** — same sequence as CI |
+| `python main.py test` | Unit, guard and invariant suites (44 tests) |
+| `python main.py sanity` | Sanity and parity report on `output.csv` |
+| `python main.py mutate` | Mutation testing: are the tests load-bearing? |
 | `python main.py calibrate` | Refit the projection scales, with leave-one-out cross-validation |
 | `python main.py extract` | Rebuild model extractions — **requires `OPENAI_API_KEY`** |
 
@@ -100,8 +103,17 @@ tools/                      extraction runners, dataset profiler, transcript log
 ## Testing
 
 ```bash
-python main.py test
+python main.py verify     # everything, in the order a failure is cheapest to find
 ```
+
+Four suites, 44 tests:
+
+| suite | what it proves |
+|---|---|
+| `test_harness.py` | Output contract and cross-field rules. No dataset needed |
+| `test_resilience.py` | Malformed, missing and adversarial input degrades to a legal conservative row rather than crashing |
+| `test_invariants.py` | Properties over all 250 real requests |
+| `test_mutation.py` | That the other three actually catch bugs |
 
 `test_harness.py` covers the output contract and cross-field rules with no
 dataset needed. `test_invariants.py` asserts properties over all 250 real
@@ -114,6 +126,16 @@ between planner and simulator fails loudly instead of shipping.
 That test found a real defect the labelled samples could not — `amount_safe_to_pay`
 was rounded to cents, and rounding up placed the plan a fraction below the
 minimum balance it is defined by.
+
+**Mutation score: 9/9 non-equivalent mutants killed.** Ten deliberate faults are
+injected one at a time — counting pending credits, ignoring the minimum balance,
+shortening the horizon, dropping the deadline, recommending rejected payment
+methods — and the suite must fail on each. The first run killed only 6, and the
+four survivors were genuine gaps: nothing enforced the horizon length, the
+rounding direction, the user's accepted payment methods, or their willingness
+lists. Five tests were added to close them. The tenth mutant is *equivalent* —
+verified to change 0 of 250 output rows, because ranking rule 2 means the extra
+candidates it generates never win — so surviving is the correct result.
 
 ## Accuracy
 

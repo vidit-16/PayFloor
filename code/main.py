@@ -5,7 +5,10 @@
     python main.py validate     # check an existing output.csv
     python main.py extract      # (re)build model extractions — needs an API key
     python main.py calibrate    # refit the projection scales
-    python main.py test         # unit + invariant tests
+    python main.py test         # unit, guard and invariant tests
+    python main.py sanity       # sanity and parity report on output.csv
+    python main.py mutate       # mutation testing: are the tests load-bearing?
+    python main.py verify       # the full pre-submission gate (same as CI)
 
 `run` needs no API key: every model extraction is cached under `extracted/`
 and committed with the solution, so the decision pipeline is fully reproducible
@@ -132,8 +135,47 @@ def cmd_calibrate(args) -> int:
 
 
 def cmd_test(args) -> int:
-    rc = _run("tests/test_harness.py")
-    return rc or _run("tests/test_invariants.py")
+    for script in ("tests/test_harness.py", "tests/test_resilience.py",
+                   "tests/test_invariants.py"):
+        rc = _run(script)
+        if rc:
+            return rc
+    return 0
+
+
+def cmd_mutate(args) -> int:
+    """Slow: re-runs the whole suite once per mutant."""
+    return _run("tests/test_mutation.py")
+
+
+def cmd_sanity(args) -> int:
+    return _run("tools/sanity_report.py", "--dataset", args.dataset, "--out", args.out)
+
+
+def cmd_verify(args) -> int:
+    """The full pre-submission gate, in the order a failure is cheapest to find.
+
+    Same sequence as CI, so a green local run and a green pipeline mean the
+    same thing.
+    """
+    steps = [
+        ("unit tests", lambda: _run("tests/test_harness.py")),
+        ("guard tests", lambda: _run("tests/test_resilience.py")),
+        ("invariants", lambda: _run("tests/test_invariants.py")),
+        ("produce output.csv", lambda: cmd_run(args)),
+        ("sanity and parity", lambda: cmd_sanity(args)),
+        ("accuracy", lambda: cmd_score(args)),
+        ("package", lambda: _run("tools/package.py")),
+    ]
+    rule = "=" * 70
+    for name, step in steps:
+        print(f"\n{rule}\n  {name}\n{rule}")
+        rc = step()
+        if rc:
+            print(f"\nVERIFY FAILED at: {name}")
+            return rc
+    print(f"\n{rule}\n  VERIFY PASSED — submission artifacts are ready\n{rule}")
+    return 0
 
 
 def main() -> int:
@@ -150,7 +192,10 @@ def main() -> int:
         ("validate", cmd_validate, "check an existing output.csv"),
         ("extract", cmd_extract, "rebuild model extractions (needs an API key)"),
         ("calibrate", cmd_calibrate, "refit projection scales"),
-        ("test", cmd_test, "run unit and invariant tests"),
+        ("test", cmd_test, "run unit, guard and invariant tests"),
+        ("mutate", cmd_mutate, "mutation testing: are the tests load-bearing?"),
+        ("sanity", cmd_sanity, "sanity and parity report on output.csv"),
+        ("verify", cmd_verify, "full pre-submission gate (same sequence as CI)"),
     ):
         sub.add_parser(name, help=help_text).set_defaults(func=fn)
     args = parser.parse_args()
