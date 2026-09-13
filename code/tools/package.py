@@ -13,12 +13,8 @@ CODE = Path(__file__).resolve().parents[1]
 OUT = CODE.parent / "code.zip"
 
 EXCLUDE_DIRS = {".orchestrate", "__pycache__", ".venv", "venv", "node_modules",
-                ".pytest_cache", ".mypy_cache", ".git", "dataset", "data",
-                # A/B evidence for the model comparison, not part of the solution.
-                "extracted_gpt5"}
-# log_turn.py writes the challenge transcript; it is process tooling rather
-# than part of the solution, so it stays out of the submitted archive.
-EXCLUDE_FILES = {".env", "code.zip", "log_turn.py"}
+                ".pytest_cache", ".mypy_cache", ".git", "dataset", "data"}
+EXCLUDE_FILES = {".env", "code.zip"}
 EXCLUDE_SUFFIX = {".pyc", ".pyo", ".sqlite3", ".log"}
 
 # Secret shapes. Checked against every text file that goes in.
@@ -70,7 +66,8 @@ def main() -> int:
         return 1
     print("secret scan: clean")
 
-    required = {"main.py", "README.md", "DESIGN.md", "requirements.txt",
+    # The design documents live in docs/ at the repository root, outside code/.
+    required = {"main.py", "README.md", "requirements.txt",
                 "evaluation/usage_report.md"}
     present = {str(p.relative_to(CODE)).replace("\\", "/") for p in files}
     missing = required - present

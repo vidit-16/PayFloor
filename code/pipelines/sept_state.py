@@ -22,12 +22,10 @@ Three things drive accuracy:
 from __future__ import annotations
 
 import datetime as dt
-import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Sequence
 
-FORECAST_DAYS = 90
 
 # Statuses that never contribute to the forecast.
 DEAD_STATUSES = {"cancelled", "failed", "unrealized"}
@@ -260,63 +258,6 @@ class Recurring:
         return dates
 
 
-#: Cadences we treat as genuine recurrence, with the tolerance used to match.
-_CADENCES = ((30, 6), (14, 3), (7, 2))
-
-
-def detect_recurring(events: Sequence[Event], as_of: dt.date) -> list[Recurring]:
-    """Infer repeating flows from history.
-
-    Grouped by (description, category) because that is what actually repeats in
-    this data: 'Apartment rent transfer' lands every 30-31 days, while
-    'Neighbourhood grocer' lands at irregular intervals and is variable
-    spending rather than a commitment. Requiring a stable cadence over at least
-    three observations keeps the latter out.
-    """
-    groups: dict[tuple[str, str], list[Event]] = defaultdict(list)
-    for event in events:
-        if event.date <= as_of:
-            groups[(event.description, event.category)].append(event)
-
-    recurring: list[Recurring] = []
-    for key, group in groups.items():
-        if len(group) < 3:
-            continue
-        group.sort(key=lambda e: e.date)
-        gaps = [
-            (group[i + 1].date - group[i].date).days for i in range(len(group) - 1)
-        ]
-        if not gaps:
-            continue
-        median_gap = statistics.median(gaps)
-        matched = None
-        for period, tolerance in _CADENCES:
-            if abs(median_gap - period) <= tolerance:
-                # Require most gaps to sit near that cadence, not just the median.
-                close = sum(1 for g in gaps if abs(g - period) <= tolerance)
-                if close >= max(2, len(gaps) - 1):
-                    matched = period
-                    break
-        if matched is None:
-            continue
-        amounts = [e.signed for e in group]
-        recurring.append(
-            Recurring(
-                key=key,
-                period_days=matched,
-                amount=statistics.median(amounts),
-                last_date=group[-1].date,
-                category=group[-1].category,
-                description=group[-1].description,
-                flexibility=group[-1].flexibility,
-                minimum_allowed=group[-1].minimum_allowed,
-                event_ids=[e.event_id for e in group],
-                representative_id=group[-1].event_id,
-            )
-        )
-    return recurring
-
-
 # --------------------------------------------------------------------------- #
 # Forecast
 # --------------------------------------------------------------------------- #
@@ -371,53 +312,3 @@ class Forecast:
     def is_safe(self, payments: Sequence[tuple[dt.date, float]] = ()) -> bool:
         # A tiny epsilon so float noise never flips a boundary case.
         return self.min_balance(payments) >= self.minimum_balance - 1e-6
-
-
-def build_forecast(
-    *,
-    as_of: dt.date,
-    start_balance: float,
-    minimum_balance: float,
-    events: Sequence[Event],
-    recurring: Sequence[Recurring],
-    adjustments: Sequence[Adjustment] = (),
-    horizon_days: int = FORECAST_DAYS,
-) -> Forecast:
-    """Project the balance forward.
-
-    Future cash flow is the union of events already dated ahead of `as_of`
-    (scheduled income, pending debits, confirmed payments) and the projected
-    occurrences of each inferred recurring flow. `adjustments` suppress or
-    shrink recurring flows the user has said they are willing to change.
-    """
-    horizon = as_of + dt.timedelta(days=horizon_days)
-    stopped = {a.event_id for a in adjustments if a.kind == "stop"}
-    reduced = {a.event_id: a.new_amount for a in adjustments if a.kind == "reduce_to"}
-
-    deltas: list[tuple[dt.date, float]] = []
-
-    # Known future-dated events.
-    recurring_ids = {eid for r in recurring for eid in r.event_ids}
-    for event in events:
-        if as_of < event.date <= horizon and event.event_id not in recurring_ids:
-            deltas.append((event.date, event.signed))
-
-    # Projected recurring flows.
-    for flow in recurring:
-        if flow.representative_id in stopped:
-            continue
-        amount = flow.amount
-        if flow.representative_id in reduced and reduced[flow.representative_id] is not None:
-            # Reductions apply to spending, so keep the sign and cap magnitude.
-            amount = -abs(reduced[flow.representative_id])  # type: ignore[arg-type]
-        for date in flow.occurrences(as_of, horizon):
-            deltas.append((date, amount))
-
-    deltas.sort(key=lambda d: d[0])
-    return Forecast(
-        start_date=as_of,
-        start_balance=start_balance,
-        minimum_balance=minimum_balance,
-        horizon=horizon,
-        deltas=deltas,
-    )

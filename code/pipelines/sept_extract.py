@@ -19,7 +19,7 @@ Both are cached per source ID, so a rerun costs nothing and the whole corpus is
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping
 
 from pydantic import BaseModel, Field
 
@@ -157,71 +157,3 @@ def extract_image(row: Mapping[str, str], media_dir: Path, extractor: Extractor)
         schema=ImageFacts,
         model=None,
     )
-
-
-# --------------------------------------------------------------------------- #
-# Turning facts into forecast inputs
-# --------------------------------------------------------------------------- #
-
-
-class Amendment(BaseModel):
-    """A model-derived change applied to one user's projected cash flow."""
-
-    user_id: str
-    category: str
-    amount: float
-    currency: str
-    effective_date: str
-    is_recurring: bool
-    supersedes: bool
-    source: str
-    summary: str
-
-
-def amendments_from_messages(
-    rows: Sequence[Mapping[str, str]],
-    facts_by_id: Mapping[str, MessageFacts],
-) -> list[Amendment]:
-    """Keep only confirmed, quantified, forward-looking changes.
-
-    Everything unconfirmed is dropped rather than guessed at: the spec says not
-    to invent unsupported income, and an unapproved bonus counted as income is
-    exactly the error that makes an unsafe plan look safe.
-    """
-    out: list[Amendment] = []
-    for row in rows:
-        facts = facts_by_id.get(row.get("message_id", ""))
-        if facts is None or not facts.concerns_money:
-            continue
-        if not facts.is_confirmed or facts.amount is None:
-            continue
-        if facts.change_type in {"none", ""}:
-            continue
-        out.append(
-            Amendment(
-                user_id=row.get("user_id", ""),
-                category=facts.category or "other",
-                amount=float(facts.amount),
-                currency=facts.currency or "",
-                effective_date=facts.effective_date or (row.get("sent_at", "") or "")[:10],
-                is_recurring=facts.is_recurring,
-                supersedes=facts.supersedes_history,
-                source=row.get("message_id", ""),
-                summary=facts.summary,
-            )
-        )
-    return out
-
-
-def image_amount_overrides(
-    image_rows: Sequence[Mapping[str, str]],
-    facts_by_id: Mapping[str, ImageFacts],
-) -> dict[str, float]:
-    """Map `related_event_id` -> amount recovered from that event's image."""
-    overrides: dict[str, float] = {}
-    for row in image_rows:
-        event_id = (row.get("related_event_id") or "").strip()
-        facts = facts_by_id.get(row.get("image_id", ""))
-        if event_id and facts and facts.amount is not None:
-            overrides[event_id] = float(facts.amount)
-    return overrides

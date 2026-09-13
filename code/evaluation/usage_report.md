@@ -51,7 +51,7 @@ choice empirically:
 | `gpt-5` | 395 | 222,180 | 219,546 | $3.0722 | 71.4% |
 
 Identical accuracy on every scored column at one sixth the cost, so
-`gpt-5-mini` ships. Full reasoning in `DESIGN.md`.
+`gpt-5-mini` ships. Full reasoning in `docs/DESIGN.md`.
 
 ## Efficiency notes
 

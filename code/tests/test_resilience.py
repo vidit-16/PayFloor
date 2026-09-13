@@ -173,6 +173,118 @@ def test_extractions_load_regardless_of_working_directory():
     )
 
 
+def _binding_request_with_salary():
+    """A request where extra income would visibly change the answer: the safe
+    amount sits well below the requested amount, and the user has a salary flow
+    a claim could amend. A request that is already fully affordable is useless
+    for testing income rules - more income cannot move a capped value."""
+    for request in DATASET.requests:
+        out = _solve(request)
+        if float(out["amount_safe_to_pay"]) >= float(request["requested_amount"]) * 0.9:
+            continue
+        home = DATASET.profiles[request["user_id"]]["home_currency"]
+        events = P.build_events(DATASET.events.get(request["user_id"], []), home,
+                                DATASET.rates, DATASET.amount_overrides)
+        as_of = P.parse_date(request["request_date"])
+        if any(f.category == "salary"
+               for f in P.infer_recurring(events, as_of, DATASET.description_facts)):
+            return request, out
+    raise AssertionError("no binding request with a salary flow - the income "
+                         "rules cannot be tested on this dataset")
+
+
+def _with_salary_claim(request, *, confirmed):
+    dataset = copy.copy(DATASET)
+    dataset.message_facts = dict(DATASET.message_facts)
+    dataset.messages = dict(DATASET.messages)
+    dataset.messages[request["user_id"]] = list(DATASET.messages.get(request["user_id"], [])) + [{
+        "message_id": "claim", "user_id": request["user_id"],
+        "request_id": request["request_id"], "related_event_id": "",
+        "sent_at": f"{request['request_date']}T00:00:00Z", "source_type": "employer",
+        "message_text": "A large salary increase is expected.",
+    }]
+    dataset.message_facts["claim"] = {
+        "concerns_money": True, "change_type": "salary_change", "category": "salary",
+        "amount": 9_999_999.0, "currency": "", "effective_date": request["request_date"],
+        "is_recurring": True, "is_confirmed": confirmed, "supersedes_history": True,
+        "summary": "salary claim",
+    }
+    return dataset
+
+
+def test_unconfirmed_income_is_never_counted():
+    """A claim that is pending, estimated or awaiting approval must not move the
+    forecast at all - counting unapproved income is exactly how an unsafe plan
+    comes to look safe.
+
+    Mutation testing showed an earlier version passed even with the
+    confirmation check deleted: it used a request that was already fully
+    affordable, where more income cannot change a capped answer. It now uses a
+    binding request, and first proves the same claim, marked confirmed, *does*
+    change the answer - so the unconfirmed case is a real control, not a
+    coincidence."""
+    request, baseline = _binding_request_with_salary()
+    confirmed = _solve(request, _with_salary_claim(request, confirmed=True))
+    assert confirmed != baseline, "precondition failed: a confirmed claim should change the answer"
+    unconfirmed = _solve(request, _with_salary_claim(request, confirmed=False))
+    assert unconfirmed == baseline, "an unconfirmed claim changed the decision"
+
+
+def _installments_only(*, count, start_offset_days, cap):
+    """A request whose only acceptable method is one seller installment option.
+
+    The option is deliberately tiny so it is always safe: whether it is
+    recommended then depends only on the eligibility rule under test.
+    """
+    request = next(r for r in DATASET.requests
+                   if float(_solve(r)["amount_safe_to_pay"]) > 100)
+    as_of = P.parse_date(request["request_date"])
+    request = {**request, "desired_completion_date": (as_of + P.dt.timedelta(days=720)).isoformat()}
+    dataset = copy.copy(DATASET)
+    dataset.profiles = dict(DATASET.profiles)
+    dataset.profiles[request["user_id"]] = {
+        **DATASET.profiles[request["user_id"]],
+        "payment_methods_user_will_consider": "installments",
+        "max_installment_months": str(cap),
+    }
+    dataset.options = dict(DATASET.options)
+    dataset.options[request["request_id"]] = P.load_options([{
+        "payment_option_id": "payment_option_001", "request_id": request["request_id"],
+        "payment_method": "installments", "payment_amount": "1.00",
+        "number_of_payments": str(count),
+        "first_payment_date": (as_of + P.dt.timedelta(days=start_offset_days)).isoformat(),
+        "payment_frequency_days": "30", "financing_fee": "0",
+        "total_payable_amount": f"{count:.2f}",
+    }])
+    return _solve(request, dataset)
+
+
+def test_installments_longer_than_the_users_cap_are_never_offered():
+    """The synthetic data never has a longer plan win, so a missing cap check
+    changes no output row there. This builds the case directly, with a positive
+    control proving the same option *is* recommended when it fits the cap."""
+    fits = _installments_only(count=3, start_offset_days=0, cap=6)
+    assert fits["recommended_payment_method"] == "installments", (
+        "precondition failed: an installment plan within the cap should be recommended"
+    )
+    too_long = _installments_only(count=12, start_offset_days=0, cap=6)
+    assert too_long["recommended_payment_method"] != "installments", (
+        "a 12-payment plan was recommended to a user who accepts at most 6"
+    )
+
+
+def test_installments_starting_before_the_request_are_never_offered():
+    """A payment dated before the request cannot be made. Same positive control."""
+    on_time = _installments_only(count=3, start_offset_days=0, cap=6)
+    assert on_time["recommended_payment_method"] == "installments", (
+        "precondition failed: an installment plan starting today should be recommended"
+    )
+    backdated = _installments_only(count=3, start_offset_days=-40, cap=6)
+    assert backdated["recommended_payment_method"] != "installments", (
+        "a plan with a payment dated before the request was recommended"
+    )
+
+
 def test_adversarial_message_cannot_force_a_recommendation():
     """Message content is untrusted evidence. Even a fabricated 'confirmed'
     claim only asserts a number, which still has to survive the forecast — it

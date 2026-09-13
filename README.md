@@ -89,16 +89,19 @@ than printing a number.
 
 ## What I'd point to
 
-**The tests are tested.** Mutation testing injects ten deliberate faults — counting
-unguaranteed income, removing the minimum-balance floor, dropping the deadline,
-recommending payment methods the user rejected — and requires the suite to fail
-on each. It kills 9 of 9 non-equivalent mutants; the tenth is verified equivalent
-by diffing every output row.
+**The tests are tested.** Mutation testing injects 26 deliberate faults —
+counting unguaranteed income, removing the minimum-balance floor, dropping the
+deadline, recommending payment methods the user rejected, converting currency on
+the wrong date — and requires the suite to fail on each. It kills 25 of 25
+non-equivalent mutants; the last is verified equivalent by diffing every output
+row. Every rule in the specification is mapped to the test and the mutant that
+prove it in [`docs/SPEC_COMPLIANCE.md`](docs/SPEC_COMPLIANCE.md).
 
-Getting there was the useful part. On the competition data, the first run killed
-6 of 10. On this synthetic data it later dropped to 7 of 9 — revealing that one
-invariant test had been checking plans with the very function a mutant broke, and
-passed only because the competition data happened to catch the fault elsewhere.
+Getting there was the useful part. The first run killed 6 of 10. Later runs
+caught subtler failures: an invariant test checking plans with the very function
+a mutant broke, an income test that passed with its check deleted because its
+request was already capped, and an installment check comparing a plan with the
+code that built it. Each is written up in [`docs/TESTING.md`](docs/TESTING.md).
 
 **Planted edge cases found real bugs.** The generator deliberately includes
 cancelled authorisations, pending debits and credits, failed payments, employment
@@ -126,18 +129,25 @@ consecutive runs are identical across all 250 rows.
 data/generate_synthetic.py     seeded dataset + consistent model extractions
 code/
   main.py                      run · score · validate · test · verify · mutate
-  DESIGN.md                    architecture, decision logic, rejected alternatives
   pipelines/
-    sept_state.py              event normalisation, FX, recurrence, forecast
+    sept_state.py              events, FX, normalisation, the Forecast type
     sept_solver.py             candidate generation, ranking, explanations
     sept_extract.py            model extraction schemas and prompts
     sept_validate.py           cross-field decision validation
-    september2026.py           wiring: state → forecast → solve → row
+    september2026.py           recurrence, amendments, projection → row
   orchestrate/                 output contract, model client, cache, config
   evaluation/calibrate.py      joint fit of projection biases, cross-validated
   tests/                       unit · guard · invariant · mutation
 .github/workflows/ci.yml       the same gate as `main.py verify`
+docs/                          the documents below
 ```
 
-`DESIGN.md` is the detailed version — including seven alternatives that were
-implemented, measured, and rejected, and why.
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [`DESIGN.md`](docs/DESIGN.md) | Why it is built this way: decision logic, calibration, and seven alternatives implemented, measured and rejected |
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How it is put together: data flow, one request end to end, modules and types |
+| [`SCOPE.md`](docs/SCOPE.md) | What it does, what it assumes, what it deliberately does not do, known limitations |
+| [`SPEC_COMPLIANCE.md`](docs/SPEC_COMPLIANCE.md) | Every rule, where it is enforced, and the test and mutant that prove it |
+| [`TESTING.md`](docs/TESTING.md) | The suites, mutation testing, and what testing the tests uncovered |

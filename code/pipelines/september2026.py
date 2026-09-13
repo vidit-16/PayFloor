@@ -45,7 +45,7 @@ HORIZON = 90
 # Calibration scales, fitted jointly against the labelled samples by
 # evaluation/calibrate.py. They exist because the forecast's two error sources
 # are compensating - projected income and projected variable spending are both
-# biased - so neither can be corrected alone (see DESIGN.md).
+# biased - so neither can be corrected alone (see docs/DESIGN.md).
 #   INCOME_SCALE   applies to every projected recurring inflow.
 #   VARIABLE_SCALE applies to projected sub-monthly outflows only; monthly
 #                  commitments are contractual amounts and are never scaled.
@@ -179,7 +179,7 @@ def infer_recurring(
 ) -> list[Recurring]:
     """Category-level recurrence, corrected by what the descriptions say.
 
-    Grouping is by category (see DESIGN.md 2), but the description carries
+    Grouping is by category (see docs/DESIGN.md, section 2), but the description carries
     semantics the columns do not, and ignoring it is what made the forecast
     wrong for any user whose circumstances changed:
 

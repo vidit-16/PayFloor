@@ -14,7 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import datetime as dt  # noqa: E402
+
 from orchestrate.cache import CallCache, content_key  # noqa: E402
+from pipelines.sept_state import RateTable, build_events  # noqa: E402
 from pipelines.september2026 import SPEC  # noqa: E402
 from pipelines.sept_validate import parse_plan, validate_decision  # noqa: E402
 
@@ -146,6 +149,47 @@ def test_plan_parser_round_trips_and_ignores_junk():
     assert parse_plan("none") == []
     assert len(parse_plan("2026-01-03:200|2026-02-03:300")) == 2
     assert parse_plan("garbage") == []
+
+
+# --------------------------------------------------------------------------- #
+# Evidence and currency rules
+# --------------------------------------------------------------------------- #
+
+def _row(**overrides):
+    base = {"event_id": "e1", "user_id": "u1", "event_type": "expense",
+            "description": "Invoice", "category": "other", "direction": "debit",
+            "amount": "100", "currency": "EUR", "event_date": "2026-01-10",
+            "settlement_date": "2026-01-10", "status": "settled",
+            "linked_event_id": "", "flexibility": "fixed", "minimum_allowed_amount": ""}
+    return {**base, **overrides}
+
+
+def test_blank_amount_is_recovered_from_evidence_not_treated_as_zero():
+    """The spec is explicit that a blank amount is not zero. With the amount read
+    from its image, the event counts at that amount; with nothing recovered it
+    is left out entirely rather than silently becoming a zero-value event."""
+    rates = RateTable([])
+    blank = _row(amount="")
+    recovered = build_events([blank], "EUR", rates, amount_overrides={"e1": 250.0})
+    assert len(recovered) == 1 and recovered[0].signed == -250.0
+    unrecovered = build_events([blank], "EUR", rates, amount_overrides={})
+    assert unrecovered == [], "a blank amount with no evidence must not become a zero event"
+
+
+def test_foreign_currency_converts_at_the_settlement_date():
+    """Cash moves on settlement, so that is the rate that applies - not the date
+    the transaction was initiated."""
+    rates = RateTable([
+        {"rate_date": "2026-01-01", "from_currency": "USD", "to_currency": "EUR", "rate": "0.80"},
+        {"rate_date": "2026-02-01", "from_currency": "USD", "to_currency": "EUR", "rate": "0.95"},
+    ])
+    row = _row(currency="USD", amount="100",
+               event_date="2026-01-20", settlement_date="2026-02-03")
+    [event] = build_events([row], "EUR", rates)
+    assert round(-event.signed, 2) == 95.00, (
+        f"converted at {-event.signed}: expected the settlement-date rate (0.95), "
+        f"not the event-date rate (0.80)"
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -219,6 +219,40 @@ def test_installments_respect_max_installment_months():
         assert count <= cap, f"{request['request_id']}: {count} payments exceeds cap {cap}"
 
 
+def test_installment_plans_match_the_raw_option_rows():
+    """Checked against the CSV itself, not PaymentOption.schedule().
+
+    The validator compares a plan with option.schedule(), the same code that
+    built the plan, so a bug in schedule() moves both sides together. Mutation
+    testing showed exactly that: an altered installment amount changed 11 rows
+    and raised no violation. This rebuilds each schedule from the raw columns.
+    """
+    import csv
+    import datetime as dt
+
+    with open("../dataset/request_payment_options.csv", newline="", encoding="utf-8-sig") as fh:
+        raw = [row for row in csv.DictReader(fh) if row["payment_method"] == "installments"]
+    schedules: dict[str, list[list[tuple]]] = {}
+    for row in raw:
+        first = dt.date.fromisoformat(row["first_payment_date"])
+        step = int(row["payment_frequency_days"])
+        schedules.setdefault(row["request_id"], []).append([
+            (first + dt.timedelta(days=step * i), round(float(row["payment_amount"]), 2))
+            for i in range(int(row["number_of_payments"]))
+        ])
+    checked = 0
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        if pred["recommended_payment_method"] != "installments":
+            continue
+        plan = [(day, round(amount, 2)) for day, amount in parse_plan(str(pred["payment_plan"]))]
+        assert plan in schedules.get(request["request_id"], []), (
+            f"{request['request_id']}: installment plan matches no supplied option row"
+        )
+        checked += 1
+    assert checked, "no installment recommendations - this test checked nothing"
+
+
 def test_spending_changes_are_in_the_users_willing_lists():
     """Flexibility alone is not permission: the category must also appear in the
     user's willing-to-stop or willing-to-reduce list. Added after mutation

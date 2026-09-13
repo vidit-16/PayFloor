@@ -23,7 +23,7 @@ offline. `extract` is the only command that calls a model.
 | `python main.py score` | Grade against labelled samples, when the dataset has them (synthetic data does not) |
 | `python main.py validate` | Re-check an existing `output.csv` (schema + cross-field) |
 | `python main.py verify` | **The full test gate** — same sequence as CI |
-| `python main.py test` | Unit, guard and invariant suites (48 tests) |
+| `python main.py test` | Unit, guard and invariant suites (54 tests) |
 | `python main.py sanity` | Sanity and parity report on `output.csv` |
 | `python main.py mutate` | Mutation testing: are the tests load-bearing? |
 | `python main.py calibrate` | Refit the projection scales, with leave-one-out cross-validation |
@@ -33,21 +33,16 @@ Add `--dataset PATH` / `--out PATH` to any command.
 
 ## Configuration
 
-Only needed for `extract`. Copy `.env.example` to `.env`:
-
-```
-OPENAI_API_KEY=sk-...
-# OPENAI_BASE_URL=            # any OpenAI-compatible endpoint
-# ORCHESTRATE_MODEL=gpt-5-mini
-# ORCHESTRATE_CONCURRENCY=6   # primary TPM/RPM control
-```
+Only needed for `extract`. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`;
+every other setting has a default and is documented in the example file.
 
 Secrets are read from the environment only. No key is ever written to a file
 that ships.
 
 ## Architecture
 
-Full rationale in [DESIGN.md](DESIGN.md). In one line: **the model describes,
+Full rationale in [DESIGN.md](../docs/DESIGN.md); module map in
+[ARCHITECTURE.md](../docs/ARCHITECTURE.md). In one line: **the model describes,
 deterministic code decides.**
 
 ```
@@ -78,10 +73,9 @@ decision it is not allowed to make.
 
 ```
 main.py                     entry point
-DESIGN.md                   architecture and decision logic
 pipelines/
-  september2026.py          wiring: state -> forecast -> solve -> row
-  sept_state.py             event normalisation, FX, recurrence, forecast
+  september2026.py          recurrence, amendments, projection -> row
+  sept_state.py             events, FX, normalisation, the Forecast type
   sept_extract.py           model extraction schemas and prompts
   sept_solver.py            candidate generation, ranking, explanations
   sept_validate.py          cross-field decision validation
@@ -113,7 +107,10 @@ tools/
 python main.py verify     # everything, in the order a failure is cheapest to find
 ```
 
-Four suites — 48 tests plus 10 mutants:
+Four suites — 54 tests plus 26 mutants. Full detail in
+[TESTING.md](../docs/TESTING.md); every rule mapped to its test and mutant in
+[SPEC_COMPLIANCE.md](../docs/SPEC_COMPLIANCE.md).
+
 
 | suite | what it proves |
 |---|---|
@@ -134,15 +131,14 @@ That test found a real defect the labelled samples could not — `amount_safe_to
 was rounded to cents, and rounding up placed the plan a fraction below the
 minimum balance it is defined by.
 
-**Mutation score: 9/9 non-equivalent mutants killed.** Ten deliberate faults are
-injected one at a time — counting pending credits, ignoring the minimum balance,
-shortening the horizon, dropping the deadline, recommending rejected payment
-methods — and the suite must fail on each. The first run killed only 6, and the
-four survivors were genuine gaps: nothing enforced the horizon length, the
-rounding direction, the user's accepted payment methods, or their willingness
-lists. Five tests were added to close them. The tenth mutant is *equivalent* —
-verified to change 0 of 250 output rows, because ranking rule 2 means the extra
-candidates it generates never win — so surviving is the correct result.
+**Mutation score: 25/25 non-equivalent mutants killed.** Twenty-six deliberate
+faults are injected one at a time — counting pending credits, ignoring the
+minimum balance, shortening the horizon, dropping the deadline, recommending
+rejected payment methods, converting currency on the wrong date — and the suite
+must fail on each. The first run, with ten mutants, killed only 6; each survivor
+was a genuine gap and gained a test. One mutant is *equivalent* — verified to
+change 0 of 250 output rows, because ranking rule 2 means the extra candidates it
+generates never win — so surviving is the correct result.
 
 ## Accuracy
 
@@ -183,5 +179,6 @@ nothing.
   A residual analysis against the implied ground truth puts the median residual
   at 32 currency units: the forecast is near-exact on most rows and wrong on a
   handful of users whose income category interleaves several distinct streams.
-  Three separate attempts to correct those rows are recorded in DESIGN.md; each
+  Three separate attempts to correct those rows are recorded in
+  [DESIGN.md](../docs/DESIGN.md); each
   measured worse and was reverted.
