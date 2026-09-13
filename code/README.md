@@ -96,8 +96,15 @@ evaluation/
 extracted/                  cached model output (messages, images, descriptions)
 tests/
   test_harness.py           output contract, cross-field rules, cache
+  test_resilience.py        malformed and adversarial input handling
   test_invariants.py        properties over all 250 requests
-tools/                      extraction runners, dataset profiler, transcript logger
+  test_mutation.py          proves the other suites catch real bugs
+tools/
+  sanity_report.py          pre-submission sanity and parity check
+  package.py                builds code.zip, refuses to seal on a secret
+  run_extract.py            message and image extraction
+  run_descriptions.py       event-description classification
+  profile_dataset.py        dataset profiler
 ```
 
 ## Testing
@@ -148,9 +155,9 @@ Against the 25 labelled samples:
 | `payment_plan` | 84% |
 | `affordability_status` | 80% |
 | `earliest_date_for_full_payment` | 76% |
-| `decision_explanation` | 52% |
+| `decision_explanation` | 60% |
 | `amount_safe_to_pay` | 24% exact, 6.6% median error |
-| **mean** | **70.3%** |
+| **mean** | **71.4%** |
 
 `decision_explanation` is scored here by exact string match against templated
 gold, so the figure understates it — the rubric grades usefulness and
@@ -173,3 +180,8 @@ nothing.
   circumstances changed in a way no description records will forecast imprecisely.
 - `amount_safe_to_pay` is exact on only 24% of samples, though median error is
   6.6% — the forecast is directionally right and quantitatively approximate.
+  A residual analysis against the implied ground truth puts the median residual
+  at 32 currency units: the forecast is near-exact on most rows and wrong on a
+  handful of users whose income category interleaves several distinct streams.
+  Three separate attempts to correct those rows are recorded in DESIGN.md; each
+  measured worse and was reverted.
