@@ -174,7 +174,7 @@ nothing.
 ## Known limitations
 
 - The projection scales in `september2026.py` are fitted on 25 samples. Leave-one-out
-  error matches in-sample, and the unscaled model still reaches 68.6%, but a
+  error matches in-sample, and the unscaled model still reaches 69.7%, but a
   different mix of users could shift the right values.
 - Recurrence is inferred, not given. A user whose history is short or whose
   circumstances changed in a way no description records will forecast imprecisely.

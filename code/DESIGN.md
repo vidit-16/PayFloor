@@ -142,8 +142,9 @@ they are contractual amounts, not estimates.
 
 The limitation is real and worth stating: the scales are fitted on 25 rows, and
 a different mix of users in the hidden set could shift the right values. They
-are a bias correction on top of a model that already works unscaled (68.6% vs
-70.3%), not a substitute for getting the projection right.
+are a bias correction on top of a model that already works unscaled (69.7% vs
+71.4%), not a substitute for getting the projection right. That is a +1.7 point
+correction, not a load-bearing parameter.
 
 ## Forecast alternatives that were measured and rejected
 

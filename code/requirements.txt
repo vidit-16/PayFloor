@@ -5,6 +5,3 @@ python-dotenv>=1.0
 
 # Model provider (any OpenAI-compatible endpoint via OPENAI_BASE_URL)
 openai>=2.0
-
-# Optional, for ad-hoc analysis
-pandas>=2.2
