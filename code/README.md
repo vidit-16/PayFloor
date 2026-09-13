@@ -11,8 +11,8 @@ pip install -r requirements.txt
 python main.py run            # writes ../dataset/output.csv
 ```
 
-**`run` needs no API key.** Every model extraction is cached in `extracted/` and
-shipped with the solution, so the decision pipeline is fully reproducible
+**`run` needs no API key.** `data/generate_synthetic.py` writes the dataset and
+matching model extractions into `extracted/`, so the decision pipeline is fully reproducible
 offline. `extract` is the only command that calls a model.
 
 ## Commands
@@ -20,10 +20,10 @@ offline. `extract` is the only command that calls a model.
 | Command | What it does |
 |---|---|
 | `python main.py run` | Produce `output.csv` for all 250 requests, validate it, print the contract report |
-| `python main.py score` | Grade the pipeline against the 25 labelled samples, per column |
+| `python main.py score` | Grade against labelled samples, when the dataset has them (synthetic data does not) |
 | `python main.py validate` | Re-check an existing `output.csv` (schema + cross-field) |
-| `python main.py verify` | **The full pre-submission gate** — same sequence as CI |
-| `python main.py test` | Unit, guard and invariant suites (44 tests) |
+| `python main.py verify` | **The full test gate** — same sequence as CI |
+| `python main.py test` | Unit, guard and invariant suites (48 tests) |
 | `python main.py sanity` | Sanity and parity report on `output.csv` |
 | `python main.py mutate` | Mutation testing: are the tests load-bearing? |
 | `python main.py calibrate` | Refit the projection scales, with leave-one-out cross-validation |
@@ -100,7 +100,7 @@ tests/
   test_invariants.py        properties over all 250 requests
   test_mutation.py          proves the other suites catch real bugs
 tools/
-  sanity_report.py          pre-submission sanity and parity check
+  sanity_report.py          sanity and parity check on output.csv
   package.py                builds code.zip, refuses to seal on a secret
   run_extract.py            message and image extraction
   run_descriptions.py       event-description classification
@@ -113,7 +113,7 @@ tools/
 python main.py verify     # everything, in the order a failure is cheapest to find
 ```
 
-Four suites, 44 tests:
+Four suites — 48 tests plus 10 mutants:
 
 | suite | what it proves |
 |---|---|
@@ -146,7 +146,7 @@ candidates it generates never win — so surviving is the correct result.
 
 ## Accuracy
 
-Against the 25 labelled samples:
+Against the competition's 25 labelled samples (not redistributed here):
 
 | column | exact |
 |---|---|

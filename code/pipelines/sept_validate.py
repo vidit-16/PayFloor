@@ -109,6 +109,8 @@ def validate_decision(
             result.add("PLAN_NONPOSITIVE_PAYMENT")
         if deadline and plan and plan[-1][0] > deadline:
             result.add("PLAN_COMPLETES_AFTER_DEADLINE", f"{plan[-1][0]} > {deadline}")
+        if request_date and plan and plan[0][0] < request_date:
+            result.add("PLAN_PAYS_BEFORE_REQUEST", f"{plan[0][0]} < {request_date}")
 
     # -- partial payment has an exact shape in the spec ---------------------
     if method == "partial_payment":

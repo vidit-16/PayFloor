@@ -213,6 +213,38 @@ it cannot, and a sixth of the cost. The wider point is that the architecture is
 largely model-insensitive by construction — the model supplies facts, the
 deterministic layer decides — so a more capable model has little room to help.
 
+## What synthetic data found that the real data didn't
+
+Running the engine on a generated dataset — built to plant every edge case the
+engine claims to handle — surfaced three problems the competition's 250 requests
+never triggered. The submitted output was re-checked against each fix and is
+unchanged, so none of them affected the real results; all three were latent.
+
+**A partial plan that contradicted its own row.** The spec pins a partial payment
+to `amount_safe_to_pay` and `earliest_date_for_full_payment`, and defines both
+*before* optional spending changes. The solver was building partial candidates
+under every adjustment set, so with a subscription stopped it would schedule a
+larger first payment and an earlier second one than the values it reported in
+those two columns. Partial candidates now come from the unadjusted forecast only.
+
+**Payments scheduled before the request.** The solver checked that a plan
+*finished* by the deadline, but never that it *started* after the request date.
+Real seller options are always dated on or after the request, which hid it; a
+guard test that moves the request date later exposed it. Both the solver and the
+cross-field validator now reject it.
+
+**A circular test.** The invariant that every recommended plan survives its own
+forecast was checked with `Forecast.is_safe()` — the function a mutant that
+removes the minimum-balance floor breaks. The test therefore passed while the
+floor was gone. On the competition data a different test caught that mutant by
+coincidence, so the suite looked sound; on synthetic data the mutation score fell
+from 9/9 to 7/9. The invariant is now checked against the profile's floor
+directly, and a second survivor — nothing asserted ranking rule 2 — gained a test
+that rebuilds the no-change candidates independently of the ranking function.
+
+The general lesson: a mutation score is a property of the tests *and* the data
+they run on.
+
 ## Safety posture
 
 Message and image content is untrusted evidence. The extraction prompts state

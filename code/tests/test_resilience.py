@@ -74,6 +74,19 @@ def test_deadline_before_request_date():
     )
 
 
+def test_leap_day_request_date():
+    """29 February must not break date arithmetic anywhere on the path.
+
+    `date.replace(year=+1)` raises on a leap day. A synthetic request dated
+    2024-02-29 crashed the sanity report that way; the engine itself survived
+    because month arithmetic clamps to the month's last day. Pinned here so the
+    engine keeps that property.
+    """
+    for day in ("2024-02-29", "2028-02-29"):
+        bad = {**GOOD, "request_date": day, "desired_completion_date": "2028-03-31"}
+        _assert_legal(_solve(bad), f"leap day {day}")
+
+
 def test_unknown_user():
     bad = {**GOOD, "user_id": "user_does_not_exist"}
     _assert_legal(_solve(bad), "unknown user")

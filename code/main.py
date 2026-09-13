@@ -82,6 +82,12 @@ def cmd_run(args) -> int:
 def cmd_score(args) -> int:
     dataset = Dataset(args.dataset)
     rows = dataset.samples
+    if not rows:
+        # Synthetic data has no independent ground truth, so there is nothing to
+        # grade against. Say so plainly rather than print a meaningless 100%.
+        print("no labelled samples in this dataset - nothing to score against.")
+        print("MEAN n/a")
+        return 0
     preds, failures = _solve_all(dataset, rows)
     gold = {r["request_id"]: r for r in rows}
     columns = [c.name for c in SPEC.columns if c.kind != "key"]
@@ -220,7 +226,7 @@ def cmd_verify(args) -> int:
         if rc:
             print(f"\nVERIFY FAILED at: {name}")
             return rc
-    print(f"\n{rule}\n  VERIFY PASSED — submission artifacts are ready\n{rule}")
+    print(f"\n{rule}\n  VERIFY PASSED — all checks green\n{rule}")
     return 0
 
 

@@ -125,6 +125,9 @@ def main() -> int:
     args = parser.parse_args()
 
     dataset = P.Dataset(args.dataset)
+    if not dataset.samples:
+        print("no labelled samples in this dataset - calibration needs ground truth.")
+        return 0
 
     if args.refine:
         centre_i, centre_v = args.refine

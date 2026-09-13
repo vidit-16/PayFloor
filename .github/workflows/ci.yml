@@ -1,9 +1,9 @@
 name: verify
 
 # Runs the same gate as `python main.py verify`, so green CI and a green local
-# run mean the same thing. The decision pipeline needs no API key: model
-# extractions are cached in code/extracted/ and committed, which is what makes
-# the whole thing reproducible here.
+# run mean the same thing. Everything runs on a synthetic dataset generated from
+# a fixed seed, with consistent model extractions, so CI needs no API key and no
+# external data.
 
 on:
   push:
@@ -27,6 +27,9 @@ jobs:
         working-directory: code
         run: pip install -r requirements.txt
 
+      - name: Generate the synthetic dataset
+        run: python data/generate_synthetic.py
+
       - name: Unit tests — output contract, cross-field rules, cache
         working-directory: code
         run: python tests/test_harness.py
@@ -46,10 +49,6 @@ jobs:
       - name: Sanity and parity report
         working-directory: code
         run: python tools/sanity_report.py
-
-      - name: Accuracy against the labelled samples
-        working-directory: code
-        run: python main.py score
 
       - name: Reproducibility — output must be byte-identical on a second run
         working-directory: code
@@ -82,6 +81,9 @@ jobs:
           cache: pip
       - working-directory: code
         run: pip install -r requirements.txt
+      - name: Generate the synthetic dataset
+        run: python data/generate_synthetic.py
+
       - name: Mutation testing — are the tests load-bearing?
         working-directory: code
         run: python tests/test_mutation.py

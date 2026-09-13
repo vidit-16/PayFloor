@@ -77,9 +77,14 @@ def test_every_recommended_plan_actually_holds_the_invariant():
         # judging it against the unadjusted forecast would be wrong.
         forecast = _forecast_for(request, profile,
                                  _adjustments_of(str(pred["spending_changes_needed"])))
-        if not forecast.is_safe(plan):
-            shortfall = forecast.minimum_balance - forecast.min_balance(plan)
-            failures.append(f"{request['request_id']} breaches by {shortfall:,.2f}")
+        # Checked against the profile's floor directly, NOT via is_safe(). This
+        # test exists to catch a wrong safety check, so it cannot use the safety
+        # check to do it - mutation testing showed a version that did would
+        # pass even with the minimum-balance floor removed entirely.
+        floor = parse_amount(profile["minimum_balance_to_keep"]) or 0.0
+        lowest = forecast.min_balance(plan)
+        if lowest < floor - 1e-6:
+            failures.append(f"{request['request_id']} breaches by {floor - lowest:,.2f}")
     if failures:
         for f in failures[:10]:
             print(f"    {f}")
@@ -262,6 +267,61 @@ def test_safe_amount_is_never_rounded_above_what_is_safe():
         assert forecast.is_safe([(as_of, safe)]), (
             f"{request['request_id']}: amount_safe_to_pay {safe} is not itself safe"
         )
+
+
+def test_partial_payment_never_uses_spending_changes():
+    """Regression: the spec pins a partial plan to amount_safe_to_pay and
+    earliest_date_for_full_payment, both defined before spending changes, so a
+    partial plan built under spending changes contradicts its own row. The
+    competition data never triggered this; synthetic data did."""
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        if pred["recommended_payment_method"] == "partial_payment":
+            assert pred["spending_changes_needed"] == "none", (
+                f"{request['request_id']}: partial payment combined with spending changes"
+            )
+
+
+def test_spending_changes_only_when_no_undisrupted_plan_exists():
+    """Ranking rule 2: prefer a plan that needs no spending changes.
+
+    If a row recommends stopping or reducing an expense, there must be no
+    eligible, safe, on-time plan that leaves the user's spending alone.
+    Mutation testing showed inverting this rule changed 112 of 250 rows and
+    nothing noticed. Checked by rebuilding the candidates with no adjustments,
+    independently of the ranking function under test.
+    """
+    from pipelines.sept_solver import build_candidates
+    from pipelines.sept_state import split_list
+
+    offenders = []
+    for request in REQUESTS:
+        pred = BY_ID[request["request_id"]]
+        if str(pred["spending_changes_needed"]) == "none":
+            continue
+        profile = DATASET.profiles[request["user_id"]]
+        accepted = set(split_list(profile.get("payment_methods_user_will_consider", "")))
+        if parse_amount(profile.get("max_installment_months", "")) is None:
+            accepted.discard("installments")
+        forecast = _forecast_for(request, profile)
+        cap = parse_amount(profile.get("max_installment_months", ""))
+        options = [o for o in DATASET.options.get(request["request_id"], [])
+                   if o.method != "installments" or (cap and o.count <= cap)]
+        undisrupted = build_candidates(
+            request_date=parse_date(request["request_date"]),
+            requested_amount=parse_amount(request["requested_amount"]) or 0.0,
+            deadline=parse_date(request["desired_completion_date"]),
+            allows_partial=(request.get("allows_partial_payment", "").lower() == "true"),
+            options=options, forecast_fn=lambda _adj: forecast, adjustment_sets=[[]],
+        )
+        eligible = [c for c in undisrupted
+                    if ("full_payment" if c.method == "wait" else c.method) in accepted]
+        if eligible:
+            offenders.append(f"{request['request_id']}: changes spending although "
+                             f"{eligible[0].method} needs none")
+    for o in offenders[:10]:
+        print(f"    {o}")
+    assert not offenders, f"{len(offenders)} rows break ranking rule 2"
 
 
 def _adjustments_of(text: str) -> list:

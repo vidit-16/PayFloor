@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import datetime as dt
 import statistics
 import sys
 from pathlib import Path
@@ -46,10 +47,38 @@ def pct(counter: collections.Counter, key: str, total: int) -> float:
     return counter.get(key, 0) / total * 100 if total else 0.0
 
 
+def parity(samples: list[dict[str, str]], preds: list[dict[str, str]]) -> list[str]:
+    """Compare predicted status and method shares with the labelled samples."""
+    flags: list[str] = []
+    print(f"\n=== PARITY vs the {len(samples)} labelled samples ===\n")
+    gold = collections.Counter(s["affordability_status"] for s in samples)
+    mine = collections.Counter(p["affordability_status"] for p in preds)
+    print(f"{'status':<24}{'gold %':>9}{'pred %':>9}{'delta':>8}")
+    print("-" * 50)
+    for status in STATUSES:
+        g, m = pct(gold, status, len(samples)), pct(mine, status, len(preds))
+        flag = "  <<" if abs(g - m) > 25 else ""
+        print(f"{status:<24}{g:>8.0f}%{m:>8.0f}%{m - g:>+7.0f}{flag}")
+        if abs(g - m) > 25:
+            flags.append(f"{status}: {m:.0f}% predicted vs {g:.0f}% in samples")
+
+    gold_m = collections.Counter(s["recommended_payment_method"] for s in samples)
+    mine_m = collections.Counter(p["recommended_payment_method"] for p in preds)
+    print(f"\n{'method':<24}{'gold %':>9}{'pred %':>9}{'delta':>8}")
+    print("-" * 50)
+    for method in METHODS:
+        g, m = pct(gold_m, method, len(samples)), pct(mine_m, method, len(preds))
+        print(f"{method:<24}{g:>8.0f}%{m:>8.0f}%{m - g:>+7.0f}")
+    return flags
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="../dataset")
-    parser.add_argument("--out", default="../dataset/output.csv")
+    # Resolved against this file, not the working directory, so the tool behaves
+    # the same whether it is run from code/, the repository root, or elsewhere.
+    repo = Path(__file__).resolve().parents[2]
+    parser.add_argument("--dataset", default=str(repo / "dataset"))
+    parser.add_argument("--out", default=str(repo / "dataset" / "output.csv"))
     args = parser.parse_args()
 
     dataset = Dataset(args.dataset)
@@ -101,7 +130,9 @@ def main() -> int:
             continue
         as_of = parse_date(request["request_date"])
         earliest = parse_date(p["earliest_date_for_full_payment"])
-        if earliest and as_of and not (as_of <= earliest <= as_of.replace(year=as_of.year + 1)):
+        # A fixed day count, not replace(year=+1): that raises on 29 February,
+        # which a synthetic request date exposed and the real data never had.
+        if earliest and as_of and not (as_of <= earliest <= as_of + dt.timedelta(days=366)):
             hard.append(f"{p['request_id']}: earliest date {earliest} outside a sane window")
         for day, amount in parse_plan(p["payment_plan"]):
             if as_of and day < as_of:
@@ -120,25 +151,12 @@ def main() -> int:
         soft.append("explanations are nearly all identical")
 
     # ---- parity against the labelled samples -------------------------------
-    print("\n=== PARITY vs the 25 labelled samples ===\n")
-    gold = collections.Counter(s["affordability_status"] for s in dataset.samples)
-    mine = collections.Counter(p["affordability_status"] for p in preds)
-    print(f"{'status':<24}{'gold %':>9}{'pred %':>9}{'delta':>8}")
-    print("-" * 50)
-    for status in STATUSES:
-        g, m = pct(gold, status, len(dataset.samples)), pct(mine, status, len(preds))
-        flag = "  <<" if abs(g - m) > 25 else ""
-        print(f"{status:<24}{g:>8.0f}%{m:>8.0f}%{m - g:>+7.0f}{flag}")
-        if abs(g - m) > 25:
-            soft.append(f"{status}: {m:.0f}% predicted vs {g:.0f}% in samples")
-
-    gold_m = collections.Counter(s["recommended_payment_method"] for s in dataset.samples)
-    mine_m = collections.Counter(p["recommended_payment_method"] for p in preds)
-    print(f"\n{'method':<24}{'gold %':>9}{'pred %':>9}{'delta':>8}")
-    print("-" * 50)
-    for method in METHODS:
-        g, m = pct(gold_m, method, len(dataset.samples)), pct(mine_m, method, len(preds))
-        print(f"{method:<24}{g:>8.0f}%{m:>8.0f}%{m - g:>+7.0f}")
+    if dataset.samples:
+        soft.extend(parity(dataset.samples, preds))
+    else:
+        # With no labelled samples, every predicted share reads as a huge gap
+        # against 0% - noise rather than a finding - so don't report it.
+        print("\n=== PARITY: skipped, this dataset has no labelled samples ===")
 
     # ---- verdict -----------------------------------------------------------
     print("\n=== VERDICT ===")
@@ -151,7 +169,8 @@ def main() -> int:
         for item in soft:
             print(f"  {item}")
     if not hard and not soft:
-        print("\nclean: no anomalies, distributions consistent with the samples")
+        suffix = ", distributions consistent with the samples" if dataset.samples else ""
+        print(f"\nclean: no anomalies{suffix}")
     elif not hard:
         print("\nno hard anomalies")
     return 1 if hard else 0

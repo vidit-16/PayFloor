@@ -174,7 +174,13 @@ def build_candidates(
             )
 
         # -- partial payment: pay what is safe now, the rest when it is safe ---
-        if allows_partial:
+        # Only on the unadjusted forecast. The spec pins a partial plan to
+        # amount_safe_to_pay and earliest_date_for_full_payment, and defines
+        # both *before* optional spending changes. Built under an adjustment
+        # set, the plan's amounts and dates diverge from the values reported in
+        # those columns - a row that contradicts itself. Found by running the
+        # engine on synthetic data; the competition set never triggered it.
+        if allows_partial and not adjustments:
             today = max_safe_today(forecast, requested_amount)
             remainder = requested_amount - today
             if today > 0 and remainder > 0 and earliest and earliest <= (deadline or earliest):
@@ -192,6 +198,11 @@ def build_candidates(
             if not schedule or not forecast.is_safe(schedule):
                 continue
             if not completes_in_time(schedule[-1][0]):
+                continue
+            # A plan cannot pay before it is requested. Checking only that the
+            # schedule *ends* by the deadline let a supplied option dated
+            # before the request date through as if it were valid.
+            if schedule[0][0] < request_date:
                 continue
             safe.append(
                 Candidate(METHOD_INSTALL, schedule,
