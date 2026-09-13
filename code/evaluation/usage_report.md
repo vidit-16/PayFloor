@@ -40,6 +40,19 @@ the size of the evidence corpus, not by the number of requests.
 length because `gpt-5-mini` is a reasoning model and reasoning tokens bill as
 output.
 
+## Model comparison
+
+A full extraction run was also performed with `gpt-5` to justify the model
+choice empirically:
+
+| model | calls | input | output | cost | mean accuracy |
+|---|---|---|---|---|---|
+| `gpt-5-mini` | 395 | 221,921 | 220,647 | **$0.4967** | 71.4% |
+| `gpt-5` | 395 | 222,180 | 219,546 | $3.0722 | 71.4% |
+
+Identical accuracy on every scored column at one sixth the cost, so
+`gpt-5-mini` ships. Full reasoning in `DESIGN.md`.
+
 ## Efficiency notes
 
 Extraction is keyed on the *content*, not the request. The 215 messages, 16

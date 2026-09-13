@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import csv
+import sys as _sys
 import datetime as dt
 import json
 import statistics
@@ -101,7 +102,14 @@ def add_months(day: dt.date, n: int) -> dt.date:
 class Dataset:
     """All CSVs plus the cached model extractions, indexed for per-request use."""
 
-    def __init__(self, root: str | Path, extracted: str | Path = "extracted") -> None:
+    #: Extraction cache, resolved against this file rather than the working
+    #: directory. A relative default silently loaded nothing when the pipeline
+    #: was invoked from the repository root, degrading accuracy by five points
+    #: with no error - the worst kind of failure, because the output still
+    #: looked valid.
+    DEFAULT_EXTRACTED = Path(__file__).resolve().parent.parent / "extracted"
+
+    def __init__(self, root: str | Path, extracted: str | Path | None = None) -> None:
         self.root = Path(root)
         load = lambda name: list(  # noqa: E731
             csv.DictReader(open(self.root / name, newline="", encoding="utf-8-sig"))
@@ -126,7 +134,13 @@ class Dataset:
 
         self.images = load("images.csv")
 
-        ex = Path(extracted)
+        ex = Path(extracted) if extracted is not None else self.DEFAULT_EXTRACTED
+        if not ex.is_absolute() and not ex.exists():
+            # A caller-supplied relative path still resolves against code/.
+            candidate = self.DEFAULT_EXTRACTED.parent / ex
+            if candidate.exists():
+                ex = candidate
+        self.extracted_dir = ex
         self.message_facts: dict[str, Any] = (
             json.loads((ex / "messages.json").read_text(encoding="utf-8"))
             if (ex / "messages.json").exists() else {}
@@ -139,6 +153,17 @@ class Dataset:
             json.loads((ex / "images.json").read_text(encoding="utf-8"))
             if (ex / "images.json").exists() else {}
         )
+        if not self.message_facts and not self.description_facts:
+            # Loud, not silent: running without extractions is a supported mode
+            # (the deterministic core stands alone) but it is never what anyone
+            # intends by accident.
+            print(
+                f"WARNING: no model extractions found at {ex} - running "
+                f"deterministic-only. Accuracy will be materially lower. "
+                f"Run `python main.py extract` or check the path.",
+                file=_sys.stderr,
+            )
+
         self.amount_overrides = {
             row["related_event_id"]: self.image_facts[row["image_id"]]["amount"]
             for row in self.images

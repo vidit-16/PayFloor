@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import csv
 import statistics
 import subprocess
 import sys
@@ -32,7 +33,12 @@ if hasattr(sys.stdout, "reconfigure"):
 from pipelines.september2026 import SPEC, Dataset, fallback_row, solve_request  # noqa: E402
 from pipelines.sept_validate import validate_all  # noqa: E402
 
-DEFAULT_DATASET = "../dataset"
+# Resolved against this file, not the caller's working directory: the defaults
+# must mean the same thing whether the command is run from code/ or the repo
+# root, otherwise `--out ../dataset/output.csv` writes outside the repository.
+DEFAULT_DATASET = str(HERE.parent / "dataset")
+DEFAULT_OUT = str(HERE.parent / "dataset" / "output.csv")
+DEFAULT_ERRORS = str(HERE / "evaluation" / "errors.csv")
 
 
 def _solve_all(dataset: Dataset, rows) -> tuple[list[dict], list[tuple[str, str]]]:
@@ -92,6 +98,46 @@ def cmd_score(args) -> int:
                 hits[column] += err < 1
             else:
                 hits[column] += g == p
+    # Dump every mismatched row. Reading failures is what moves the score; a
+    # column percentage only says that something, somewhere, is wrong.
+    errors_path = Path(args.errors)
+    errors_path.parent.mkdir(parents=True, exist_ok=True)
+    mismatches: list[dict] = []
+    for pred in preds:
+        truth = gold[pred["request_id"]]
+        row: dict = {"request_id": pred["request_id"]}
+        wrong = False
+        for column in columns:
+            g, p = str(truth.get(column, "")).strip(), str(pred.get(column, "")).strip()
+            if column == "amount_safe_to_pay":
+                err = abs(float(g) - float(p)) / max(abs(float(g)), 1.0) * 100
+                row["amount_error_pct"] = round(err, 2)
+                if err >= 1:
+                    wrong = True
+                    row["gold_amount_safe_to_pay"] = g
+                    row["pred_amount_safe_to_pay"] = p
+            elif g != p:
+                wrong = True
+                row[f"gold_{column}"] = g
+                row[f"pred_{column}"] = p
+        if wrong:
+            request = next(r for r in rows if r["request_id"] == pred["request_id"])
+            row["user_id"] = request["user_id"]
+            row["request_type"] = request["request_type"]
+            mismatches.append(row)
+
+    if mismatches:
+        fields: list[str] = []
+        for row in mismatches:
+            for key in row:
+                if key not in fields:
+                    fields.append(key)
+        with errors_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(mismatches)
+    print(f"\nwrote {errors_path} ({len(mismatches)} mismatched rows)")
+
     n = len(preds)
     print(f"\n{'column':<34}{'exact':>12}")
     print("-" * 46)
@@ -105,9 +151,6 @@ def cmd_score(args) -> int:
 
 def cmd_validate(args) -> int:
     dataset = Dataset(args.dataset)
-    from orchestrate.schema import OutputSpec  # noqa: F401  (kept explicit for clarity)
-    import csv
-
     with open(args.out, newline="", encoding="utf-8-sig") as handle:
         preds = [dict(r) for r in csv.DictReader(handle)]
     report = SPEC.validate(preds, [r["request_id"] for r in dataset.requests])
@@ -122,7 +165,10 @@ def cmd_validate(args) -> int:
 
 
 def _run(script: str, *extra: str) -> int:
-    return subprocess.call([sys.executable, str(HERE / script), *extra])
+    # Pin the working directory to this file's own. Sub-scripts resolve the
+    # dataset relative to code/, so inheriting an arbitrary caller cwd makes
+    # `verify` pass or fail depending on where it was invoked from.
+    return subprocess.call([sys.executable, str(HERE / script), *extra], cwd=HERE)
 
 
 def cmd_extract(args) -> int:
@@ -182,9 +228,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", default=DEFAULT_DATASET,
-                        help=f"dataset directory (default {DEFAULT_DATASET})")
-    parser.add_argument("--out", default=f"{DEFAULT_DATASET}/output.csv",
-                        help="predictions path")
+                        help="dataset directory (default: ../dataset)")
+    parser.add_argument("--out", default=DEFAULT_OUT,
+                        help="predictions path (default: ../dataset/output.csv)")
+    parser.add_argument("--errors", default=DEFAULT_ERRORS,
+                        help="where `score` dumps mismatched rows")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn, help_text in (
         ("run", cmd_run, "produce output.csv for every request"),

@@ -168,6 +168,50 @@ projected income alone regresses accuracy because the income and
 variable-spending errors are compensating - which is why the calibration fits
 both jointly.
 
+## What the model is worth, measured
+
+The extraction layer was ablated against the labelled samples to establish that
+it earns its place rather than assuming it:
+
+| configuration | mean | median error |
+|---|---|---|
+| Full pipeline | **71.4%** | 6.6% |
+| No model at all — deterministic only | 66.3% | 12.7% |
+| Without message amendments | 68.6% | 6.6% |
+| Without description semantics | 68.6% | 12.7% |
+| Without image amounts | 72.0% | 8.8% |
+
+The model is worth **+5.1 points**, and it halves the error on
+`amount_safe_to_pay`. Message amendments and description semantics contribute
++2.9 each.
+
+The image layer measures **-0.6** on 25 samples, which is roughly one cell and
+well inside noise. It is kept regardless: it supplies the amounts for the 16
+events whose `amount` column is blank, and the spec states outright that a blank
+amount is not zero. Dropping it to chase half a point would violate the
+specification to fit the sample.
+
+### Model choice: gpt-5-mini over gpt-5
+
+Both were run over the full corpus and scored.
+
+| | gpt-5-mini | gpt-5 |
+|---|---|---|
+| Mean on samples | 71.4% | 71.4% |
+| Every column | identical | identical |
+| Extraction cost | **$0.50** | $3.07 (6.1x) |
+
+They tie on every measurable column. On the full 250 they differ on 14 rows,
+driven by 28 of 164 description classifications — and on inspection the larger
+model is the weaker one here: it labels "Commuter pass", "Delivery platform
+payout" and "Driver platform payout" as one-off events when they plainly
+recur, and downgrades "Failed bill payment attempt" from superseded to one-off.
+
+`gpt-5-mini` is kept: equal where it can be measured, better on inspection where
+it cannot, and a sixth of the cost. The wider point is that the architecture is
+largely model-insensitive by construction — the model supplies facts, the
+deterministic layer decides — so a more capable model has little room to help.
+
 ## Safety posture
 
 Message and image content is untrusted evidence. The extraction prompts state

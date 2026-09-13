@@ -1,4 +1,4 @@
-import csv, sys, json, time
+import argparse, csv, sys, json, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -9,6 +9,12 @@ from pipelines.sept_extract import extract_message, extract_image
 
 D = Path("../dataset")
 L = lambda f: list(csv.DictReader(open(D / f, newline="", encoding="utf-8")))
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--out", default="extracted",
+                 help="directory for the extraction JSON (use a separate one to A/B models)")
+_args = _ap.parse_args()
+OUT = Path(_args.out)
+
 settings = load_settings(dataset_dir="../dataset")
 cache = CallCache(settings.cache_path); ledger = UsageLedger()
 ex = Extractor(settings, cache, ledger)
@@ -30,9 +36,9 @@ with ThreadPoolExecutor(max_workers=settings.max_concurrency) as pool:
         except Exception as e:
             errs.append((key, f"{type(e).__name__}: {e}"))
 
-Path("extracted").mkdir(exist_ok=True)
-Path("extracted/messages.json").write_text(json.dumps(out_m, indent=1), encoding="utf-8")
-Path("extracted/images.json").write_text(json.dumps(out_i, indent=1), encoding="utf-8")
+OUT.mkdir(parents=True, exist_ok=True)
+(OUT / "messages.json").write_text(json.dumps(out_m, indent=1), encoding="utf-8")
+(OUT / "images.json").write_text(json.dumps(out_i, indent=1), encoding="utf-8")
 print(f"messages={len(out_m)}/{len(msgs)}  images={len(out_i)}/{len(imgs)}  errors={len(errs)}  {time.time()-t0:.0f}s")
 for k, e in errs[:5]: print("  ERR", k, e)
 print(json.dumps(ledger.summary(settings), indent=1))

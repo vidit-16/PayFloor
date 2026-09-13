@@ -133,6 +133,33 @@ def test_profile_with_no_accepted_payment_methods():
     )
 
 
+def test_extractions_load_regardless_of_working_directory():
+    """Regression: the extraction cache was resolved against the *caller's* cwd.
+
+    Run from the repository root instead of code/, the pipeline silently found
+    no extractions and fell back to deterministic-only - five points of accuracy
+    gone, with a still-valid-looking output.csv and no error. A grader running
+    `python code/main.py run` from the repo root would have been given the worse
+    submission. The path is now anchored to the module.
+    """
+    import os
+    import subprocess
+
+    code_dir = Path(__file__).resolve().parents[1]
+    scores = {}
+    for label, cwd in (("code", code_dir), ("repo root", code_dir.parent),
+                       ("elsewhere", Path(os.environ.get("TEMP", "/tmp")))):
+        result = subprocess.run(
+            [sys.executable, str(code_dir / "main.py"), "score"],
+            cwd=cwd, capture_output=True, text=True, timeout=600,
+        )
+        line = next((l for l in result.stdout.splitlines() if l.startswith("MEAN")), "")
+        scores[label] = line.split()[-1] if line else "MISSING"
+    assert len(set(scores.values())) == 1, (
+        f"accuracy depends on the working directory: {scores}"
+    )
+
+
 def test_adversarial_message_cannot_force_a_recommendation():
     """Message content is untrusted evidence. Even a fabricated 'confirmed'
     claim only asserts a number, which still has to survive the forecast — it

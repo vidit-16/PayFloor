@@ -6,7 +6,7 @@ authorization" is superseded by its settlement. Grouping purely on category
 silently discards this, which is what made the forecast wrong for any user whose
 circumstances changed. 164 distinct strings -> 164 cached calls.
 """
-import csv, json, sys, time
+import argparse, csv, json, sys, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, Field
@@ -43,6 +43,12 @@ An "authorization", "pending" or "reversed" record is superseded by its settled
 counterpart. Do not infer anything the words do not support.\
 """
 
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--out", default="extracted",
+                 help="directory for the extraction JSON (use a separate one to A/B models)")
+_args = _ap.parse_args()
+OUT = Path(_args.out)
+
 settings = load_settings(dataset_dir="../dataset")
 cache = CallCache(settings.cache_path); ledger = UsageLedger()
 ex = Extractor(settings, cache, ledger)
@@ -63,8 +69,8 @@ with ThreadPoolExecutor(max_workers=settings.max_concurrency) as pool:
             d, r = fut.result(); out[d] = r.model_dump()
         except Exception as e:
             errs.append(str(e))
-Path("extracted").mkdir(exist_ok=True)
-Path("extracted/descriptions.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
+OUT.mkdir(parents=True, exist_ok=True)
+(OUT / "descriptions.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
 print(f"classified {len(out)}/{len(descs)} errors={len(errs)} in {time.time()-t0:.0f}s")
 import collections
 print("continuity:", dict(collections.Counter(v["continuity"] for v in out.values())))
