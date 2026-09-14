@@ -4,11 +4,32 @@ code/extracted/
 
 # Build and runtime artifacts
 code.zip
-code/.orchestrate/
+.orchestrate/
 code/evaluation/errors.csv
+evaluation/errors.csv
+
+# Python caches, tooling, virtualenvs
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+mutants/
+.venv/
+venv/
+env/
+
+# Editors / assistants / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
 # Secrets
 .env
-code/.env
+*.env
+!.env.example

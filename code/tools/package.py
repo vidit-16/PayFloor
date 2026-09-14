@@ -6,7 +6,9 @@ Every file is inspected for secret-shaped content before the archive is sealed,
 because a leaked key in a submitted zip cannot be un-shipped.
 """
 from __future__ import annotations
-import re, zipfile
+
+import re
+import zipfile
 from pathlib import Path
 
 CODE = Path(__file__).resolve().parents[1]

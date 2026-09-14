@@ -16,8 +16,9 @@ Returns reasons rather than a bare boolean so a failure says what broke.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .sept_state import parse_amount, parse_date, split_list
 
@@ -146,7 +147,7 @@ def validate_decision(
             schedule = option.schedule()
             if len(schedule) == len(plan) and all(
                 d1 == d2 and abs(a1 - a2) <= TOLERANCE
-                for (d1, a1), (d2, a2) in zip(schedule, plan)
+                for (d1, a1), (d2, a2) in zip(schedule, plan, strict=True)
             ):
                 matched = True
                 break

@@ -1,0 +1,21 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["code"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+  "E402",  # scripts insert code/ onto sys.path before importing
+  "E501",  # long explanatory strings in reports
+  "E741",  # short loop names in data tooling
+]
+
+[tool.pytest.ini_options]
+testpaths = ["code/tests"]
+pythonpath = ["code"]
+# test_mutation.py is a driver (re-runs the suite per mutant), not a test module.
+addopts = "--ignore=code/tests/test_mutation.py"
+
+[tool.coverage.run]
+source = ["code/pipelines", "code/orchestrate"]

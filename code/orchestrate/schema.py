@@ -16,9 +16,10 @@ import csv
 import datetime as _dtmod
 import difflib
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Literal
 
 ColumnKind = Literal["key", "categorical", "text", "number", "id_list", "boolean", "date"]
 

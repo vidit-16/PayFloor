@@ -1,7 +1,7 @@
-# Core
-pydantic>=2.7
-tenacity>=8.5
-python-dotenv>=1.0
+# Core (pinned for reproducible runs; tested on Python 3.12)
+pydantic==2.13.5
+tenacity==9.1.4
+python-dotenv==1.2.3
 
 # Model provider (any OpenAI-compatible endpoint via OPENAI_BASE_URL)
-openai>=2.0
+openai==3.13.0

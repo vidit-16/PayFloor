@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Sequence
-
 
 # Statuses that never contribute to the forecast.
 DEAD_STATUSES = {"cancelled", "failed", "unrealized"}

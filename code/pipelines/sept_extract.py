@@ -18,8 +18,8 @@ Both are cached per source ID, so a rerun costs nothing and the whole corpus is
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 from pydantic import BaseModel, Field
 

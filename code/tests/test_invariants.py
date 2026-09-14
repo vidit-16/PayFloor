@@ -21,7 +21,8 @@ import pipelines.september2026 as P  # noqa: E402
 from pipelines.sept_state import parse_amount, parse_date  # noqa: E402
 from pipelines.sept_validate import parse_plan, validate_all  # noqa: E402
 
-DATASET = P.Dataset("../dataset")
+# Anchored to this file so the suite gives the same result from any cwd (pytest at repo root included).
+DATASET = P.Dataset(str(Path(__file__).resolve().parents[2] / "dataset"))
 REQUESTS = DATASET.requests
 PREDS = [P.solve_request(r, DATASET) for r in REQUESTS]
 BY_ID = {p["request_id"]: p for p in PREDS}
@@ -230,7 +231,7 @@ def test_installment_plans_match_the_raw_option_rows():
     import csv
     import datetime as dt
 
-    with open("../dataset/request_payment_options.csv", newline="", encoding="utf-8-sig") as fh:
+    with open(Path(__file__).resolve().parents[2] / "dataset" / "request_payment_options.csv", newline="", encoding="utf-8-sig") as fh:
         raw = [row for row in csv.DictReader(fh) if row["payment_method"] == "installments"]
     schedules: dict[str, list[list[tuple]]] = {}
     for row in raw:
@@ -346,7 +347,7 @@ def test_spending_changes_only_when_no_undisrupted_plan_exists():
             requested_amount=parse_amount(request["requested_amount"]) or 0.0,
             deadline=parse_date(request["desired_completion_date"]),
             allows_partial=(request.get("allows_partial_payment", "").lower() == "true"),
-            options=options, forecast_fn=lambda _adj: forecast, adjustment_sets=[[]],
+            options=options, forecast_fn=lambda _adj, forecast=forecast: forecast, adjustment_sets=[[]],
         )
         eligible = [c for c in undisrupted
                     if ("full_payment" if c.method == "wait" else c.method) in accepted]

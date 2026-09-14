@@ -1,9 +1,8 @@
 name: verify
 
-# Runs the same gate as `python main.py verify`, so green CI and a green local
-# run mean the same thing. Everything runs on a synthetic dataset generated from
-# a fixed seed, with consistent model extractions, so CI needs no API key and no
-# external data.
+# Lint + pytest with coverage, then the same gate as `python main.py verify`.
+# Everything runs on a synthetic dataset generated from a fixed seed, with
+# consistent model extractions, so CI needs no API key and no external data.
 
 on:
   push:
@@ -11,14 +10,39 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check .
+      - name: Generate the synthetic dataset
+        run: python data/generate_synthetic.py
+      - name: Pytest with coverage
+        run: python -m pytest --cov --cov-report=term --cov-report=xml
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: coverage
+          path: coverage.xml
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -61,12 +85,22 @@ jobs:
         working-directory: code
         run: python tools/package.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: submission
           path: |
             code.zip
             dataset/output.csv
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Build image
+        run: docker build -t affordability-engine:ci .
+      - name: Run the engine inside the container
+        run: docker run --rm affordability-engine:ci run
 
   mutation:
     # Slow (re-runs the suite once per mutant), so it does not gate every push.
@@ -74,8 +108,8 @@ jobs:
     timeout-minutes: 60
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.12"
           cache: pip

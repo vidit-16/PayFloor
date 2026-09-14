@@ -54,6 +54,20 @@ def _resolve_dataset(given: Path) -> Path:
     return given  # let the caller fail with a clear path in the message
 
 
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    """Read an integer setting, failing with a message that names the variable."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from None
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+    return value
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -114,12 +128,12 @@ def load_settings(
         provider=provider,  # type: ignore[arg-type]
         model=os.environ.get("ORCHESTRATE_MODEL", defaults[0]),
         vision_model=os.environ.get("ORCHESTRATE_VISION_MODEL", defaults[1]),
-        max_concurrency=int(os.environ.get("ORCHESTRATE_CONCURRENCY", "6")),
-        max_tokens=int(os.environ.get("ORCHESTRATE_MAX_TOKENS", "2000")),
+        max_concurrency=_env_int("ORCHESTRATE_CONCURRENCY", 6, minimum=1),
+        max_tokens=_env_int("ORCHESTRATE_MAX_TOKENS", 2000, minimum=1),
         cache_path=work / "cache.sqlite3",
         checkpoint_dir=work / "checkpoints",
         dataset_dir=dataset,
         output_path=Path(output_path) if output_path else dataset / "output.csv",
         dry_run=_env_flag("ORCHESTRATE_DRY_RUN"),
-        seed=int(os.environ.get("ORCHESTRATE_SEED", "0")),
+        seed=_env_int("ORCHESTRATE_SEED", 0),
     )

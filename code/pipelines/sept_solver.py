@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Sequence
 
 from .sept_state import Adjustment, Forecast, _money, parse_amount, parse_date
 

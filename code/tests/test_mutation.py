@@ -246,7 +246,7 @@ def main() -> int:
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".orchestrate"))
     shutil.copytree(CODE.parent / "dataset", workspace.parent / "dataset")
 
-    print(f"baseline suite on the unmutated copy ... ", end="", flush=True)
+    print("baseline suite on the unmutated copy ... ", end="", flush=True)
     if not run_suite(workspace):
         print("FAILS — cannot run mutation testing against a red suite")
         return 1

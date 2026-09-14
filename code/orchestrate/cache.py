@@ -36,7 +36,7 @@ def content_key(namespace: str, model: str, payload: Any) -> str:
     """Stable hash of a call. `payload` is JSON-serialized with sorted keys so
     that dict ordering can never silently produce a cache miss."""
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-    digest = hashlib.sha256(f"{namespace}\x00{model}\x00{blob}".encode("utf-8"))
+    digest = hashlib.sha256(f"{namespace}\x00{model}\x00{blob}".encode())
     return digest.hexdigest()
 
 
@@ -95,7 +95,7 @@ class CallCache:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> "CallCache":
+    def __enter__(self) -> CallCache:
         return self
 
     def __exit__(self, *exc: object) -> None:
