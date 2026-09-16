@@ -30,9 +30,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from pipelines.september2026 import Dataset  # noqa: E402
 from pipelines.sept_state import parse_amount, parse_date  # noqa: E402
 from pipelines.sept_validate import parse_plan  # noqa: E402
+from pipelines.september2026 import Dataset  # noqa: E402
 
 STATUSES = ("affordable_now", "affordable_with_plan", "affordable_later", "not_affordable")
 METHODS = ("full_payment", "partial_payment", "installments", "wait", "not_recommended")
@@ -83,7 +83,6 @@ def main() -> int:
 
     dataset = Dataset(args.dataset)
     preds = load(Path(args.out))
-    by_id = {p["request_id"]: p for p in preds}
     requests = {r["request_id"]: r for r in dataset.requests}
     profiles = dataset.profiles
     hard: list[str] = []

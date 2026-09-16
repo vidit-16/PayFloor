@@ -35,6 +35,7 @@ if hasattr(sys.stdout, "reconfigure"):
 # Lightweight adversarial-marker scan, kept local so the tool has no
 # dependency on the decision pipeline.
 import re as _re
+
 _MARKERS = (r'\bignore (previous|prior|above)\b', r'\bsystem note\b',
             r'\b(set|mark|classify)\s+\w+\s*(as|=)\b', r'\boverride\b')
 

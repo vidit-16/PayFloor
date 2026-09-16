@@ -1,5 +1,10 @@
 # Affordability Engine
 
+[![verify](https://github.com/vidit-16/affordability-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/vidit-16/affordability-engine/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+
 **Should this user buy now, pay in parts, use instalments, wait — or not proceed at all?**
 
 An engine that answers that question for a financial request, and guarantees the
@@ -32,22 +37,15 @@ transaction descriptions — and returns structured facts. Everything after that
 is ordinary code: reconstruct the cash flow, forecast 90 days, enumerate every
 candidate plan, discard the unsafe ones, rank what remains.
 
-```
-  messages · images · descriptions            profiles · events · FX · offers
-              │                                          │
-      model extraction                                   │
-   (structured facts only)                               │
-              └────────────────────┬─────────────────────┘
-                                   ▼
-                     financial state reconstruction
-                                   ▼
-                        90-day balance forecast
-                                   ▼
-          candidate plans  →  safety filter  →  eligibility filter
-                                   ▼
-                    six-level deterministic ranking
-                                   ▼
-                   decision + explanation from the same numbers
+```mermaid
+flowchart TD
+  U["messages / images / descriptions"] --> X["model extraction<br/>(structured facts only)"]
+  X --> S["financial state reconstruction"]
+  D["profiles / events / FX / offers"] --> S
+  S --> F["90-day balance forecast"]
+  F --> C["candidate plans"] --> SF["safety filter"] --> E["eligibility filter"]
+  E --> R["six-level deterministic ranking"]
+  R --> O["decision + explanation from the same numbers"]
 ```
 
 The central quantity turns out to be one subtraction. Paying *X* today lowers the
@@ -69,6 +67,22 @@ python data/generate_synthetic.py        # 250 users, ~25,000 transactions
 cd code
 python main.py run                       # writes ../dataset/output.csv
 python main.py verify                    # the full test gate
+```
+
+With Docker (batch CLI image, non-root; generates the synthetic dataset at build time):
+
+```bash
+docker build -t affordability-engine .
+docker run --rm affordability-engine run      # or: verify, validate, sanity
+```
+
+Development tooling (ruff, pytest, coverage):
+
+```bash
+pip install -r requirements-dev.txt
+python data/generate_synthetic.py
+ruff check .
+python -m pytest --cov                   # run from the repo root
 ```
 
 ## Results
@@ -123,6 +137,16 @@ the same forecast as everything else.
 **Reproducible to the byte.** Every model call is content-hash cached, and two
 consecutive runs are identical across all 250 rows.
 
+## Testing at a glance
+
+| Check | Result |
+|---|---|
+| `pytest` (unit, guard, invariant, smoke with a mocked model client) | 61 passed, 85% line coverage of `pipelines/` + `orchestrate/` |
+| Mutation testing (`python main.py mutate`, 26 hand-written semantic mutants) | 25/25 non-equivalent killed (1 proven equivalent) |
+| A/B: `gpt-5-mini` vs `gpt-5` for extraction (full 395-call run) | identical 71.4% accuracy; mini costs $0.50 vs $3.07, so mini ships ([usage report](code/evaluation/usage_report.md)) |
+| A/B: model layer on vs off (ablation) | +5.1 points mean exact match |
+| Reproducibility | `output.csv` byte-identical across consecutive runs (CI-enforced) |
+
 ## Layout
 
 ```
@@ -138,9 +162,15 @@ code/
   orchestrate/                 output contract, model client, cache, config
   evaluation/calibrate.py      joint fit of projection biases, cross-validated
   tests/                       unit · guard · invariant · mutation
-.github/workflows/ci.yml       the same gate as `main.py verify`
+.github/workflows/ci.yml       ruff + pytest/coverage, the `verify` gate, Docker build
+Dockerfile, pyproject.toml      container image; ruff/pytest/coverage config
+requirements-dev.txt           pinned dev tooling on top of code/requirements.txt
 docs/                          the documents below
 ```
+
+Why `code/` is nested: the competition graded a zip of `code/` (built by
+`tools/package.py`), with `dataset/` as its sibling. Keeping that layout means the
+archive, relative defaults and docs all stay valid, so it was not flattened.
 
 ## Documentation
 
@@ -151,3 +181,9 @@ docs/                          the documents below
 | [`SCOPE.md`](docs/SCOPE.md) | What it does, what it assumes, what it deliberately does not do, known limitations |
 | [`SPEC_COMPLIANCE.md`](docs/SPEC_COMPLIANCE.md) | Every rule, where it is enforced, and the test and mutant that prove it |
 | [`TESTING.md`](docs/TESTING.md) | The suites, mutation testing, and what testing the tests uncovered |
+
+## Roadmap
+
+- Property-based tests (Hypothesis) for the forecast and ranking invariants
+- Publish the Docker image from CI on tagged releases
+- A small HTTP API wrapper around `solve_request` for interactive use

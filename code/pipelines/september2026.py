@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import calendar
 import csv
-import sys as _sys
 import datetime as dt
 import json
 import statistics
+import sys as _sys
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from orchestrate.schema import Column, OutputSpec
 
@@ -205,7 +206,7 @@ def infer_recurring(
         groups[event.category].append(event)
 
     out: list[Recurring] = []
-    for key, group in groups.items():
+    for group in groups.values():
         group.sort(key=lambda e: e.date)
         last = group[-1]
         category = last.category

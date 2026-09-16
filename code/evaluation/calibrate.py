@@ -118,7 +118,7 @@ def leave_one_out(dataset: P.Dataset, incomes: list[float], variables: list[floa
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default="../dataset")
+    parser.add_argument("--dataset", default=str(Path(__file__).resolve().parents[2] / "dataset"))
     parser.add_argument("--coarse", action="store_true")
     parser.add_argument("--refine", nargs=2, type=float, metavar=("INCOME", "VARIABLE"))
     parser.add_argument("--loo", action="store_true", help="leave-one-out cross-validation")

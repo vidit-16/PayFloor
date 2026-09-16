@@ -23,7 +23,8 @@ if hasattr(sys.stdout, "reconfigure"):
 import pipelines.september2026 as P  # noqa: E402
 from pipelines.sept_validate import validate_decision  # noqa: E402
 
-DATASET = P.Dataset("../dataset")
+# Anchored to this file so the suite gives the same result from any cwd (pytest at repo root included).
+DATASET = P.Dataset(str(Path(__file__).resolve().parents[2] / "dataset"))
 GOOD = DATASET.requests[0]
 
 

@@ -30,8 +30,8 @@ sys.path.insert(0, str(HERE))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from pipelines.september2026 import SPEC, Dataset, fallback_row, solve_request  # noqa: E402
 from pipelines.sept_validate import validate_all  # noqa: E402
+from pipelines.september2026 import SPEC, Dataset, fallback_row, solve_request  # noqa: E402
 
 # Resolved against this file, not the caller's working directory: the defaults
 # must mean the same thing whether the command is run from code/ or the repo
@@ -177,7 +177,31 @@ def _run(script: str, *extra: str) -> int:
     return subprocess.call([sys.executable, str(HERE / script), *extra], cwd=HERE)
 
 
+def missing_key_message(environ: dict[str, str] | None = None) -> str | None:
+    """Explain, before any work starts, why `extract` cannot call a model."""
+    import os
+
+    env = os.environ if environ is None else environ
+    if env.get("ORCHESTRATE_DRY_RUN", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return None
+    if env.get("OPENAI_API_KEY", "").strip():
+        return None
+    return ("extract calls a model and needs OPENAI_API_KEY. Copy code/.env.example to "
+            "code/.env and set it, or set ORCHESTRATE_DRY_RUN=1 to serve from cache only. "
+            "`python main.py run` needs no key.")
+
+
 def cmd_extract(args) -> int:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(HERE / ".env")
+    except ImportError:  # pragma: no cover - python-dotenv is a core requirement
+        pass
+    problem = missing_key_message()
+    if problem:
+        print(f"error: {problem}", file=sys.stderr)
+        return 2
     rc = _run("tools/run_extract.py")
     return rc or _run("tools/run_descriptions.py")
 

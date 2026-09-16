@@ -14,12 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import datetime as dt  # noqa: E402
 
 from orchestrate.cache import CallCache, content_key  # noqa: E402
 from pipelines.sept_state import RateTable, build_events  # noqa: E402
-from pipelines.september2026 import SPEC  # noqa: E402
 from pipelines.sept_validate import parse_plan, validate_decision  # noqa: E402
+from pipelines.september2026 import SPEC  # noqa: E402
 
 ROW = {
     "request_id": "r1",
