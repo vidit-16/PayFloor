@@ -1,6 +1,6 @@
-# Affordability Engine
+# PayFloor
 
-[![verify](https://github.com/vidit-16/affordability-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/vidit-16/affordability-engine/actions/workflows/ci.yml)
+[![verify](https://github.com/vidit-16/PayFloor/actions/workflows/ci.yml/badge.svg)](https://github.com/vidit-16/PayFloor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
@@ -72,8 +72,8 @@ python main.py verify                    # the full test gate
 With Docker (batch CLI image, non-root; generates the synthetic dataset at build time):
 
 ```bash
-docker build -t affordability-engine .
-docker run --rm affordability-engine run      # or: verify, validate, sanity
+docker build -t payfloor .
+docker run --rm payfloor run      # or: verify, validate, sanity
 ```
 
 Development tooling (ruff, pytest, coverage):

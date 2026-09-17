@@ -98,9 +98,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Build image
-        run: docker build -t affordability-engine:ci .
+        run: docker build -t payfloor:ci .
       - name: Run the engine inside the container
-        run: docker run --rm affordability-engine:ci run
+        run: docker run --rm payfloor:ci run
 
   mutation:
     # Slow (re-runs the suite once per mutant), so it does not gate pull requests.
